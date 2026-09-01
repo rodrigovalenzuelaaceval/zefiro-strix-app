@@ -57,6 +57,15 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   build_runner: ^2.16.0
   json_serializable: ^6.14.1
+  flutter_launcher_icons: ^0.14.3
+
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: true
+  image_path: "assets/icon/icon.png"
+  min_sdk_android: 21
+  adaptive_icon_background: "#191F18"
+  adaptive_icon_foreground: "assets/icon/icon.png"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -68,6 +77,9 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/icon/icon.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:

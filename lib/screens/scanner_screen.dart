@@ -16,10 +16,6 @@ class ScannerScreen extends StatefulWidget {
 class _ScannerScreenState extends State<ScannerScreen> {
   FlutterReactiveBle? _bleInstance;
 
-  /// Lazily creates the [FlutterReactiveBle] instance. The constructor eagerly
-  /// initializes the platform, so we defer it until a scan is actually started.
-  /// This keeps widget tests from touching the platform when no BLE operation
-  /// is triggered.
   FlutterReactiveBle get _ble => _bleInstance ??= FlutterReactiveBle();
 
   List<DiscoveredDevice> _scanResults = [];
@@ -46,9 +42,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
       Permission.bluetoothConnect,
     ];
 
-    // On Android 11 (API 30) or lower, BLE scanning requires the location
-    // permission to return results. On Android 12+ (API 31+) it is not needed
-    // thanks to the `neverForLocation` flag in the manifest.
     if (await _isAndroidSdkAtMost(30)) {
       permissions.add(Permission.locationWhenInUse);
     }
@@ -56,6 +49,22 @@ class _ScannerScreenState extends State<ScannerScreen> {
     final statuses = await permissions.request();
 
     final denied = statuses.values.any((status) => status.isDenied);
+    final permanentlyDenied = statuses.values.any((status) => status.isPermanentlyDenied);
+
+    if (permanentlyDenied) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Bloqueaste el permiso de Bluetooth permanentemente. Actívalo manualmente desde Ajustes del sistema > Apps > Zéfiro Strix > Permisos.',
+            ),
+            action: SnackBarAction(label: 'Abrir Ajustes', onPressed: openAppSettings),
+          ),
+        );
+      }
+      return false;
+    }
+
     if (denied) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -78,31 +87,57 @@ class _ScannerScreenState extends State<ScannerScreen> {
       final androidInfo = await DeviceInfoPlugin().androidInfo;
       return androidInfo.version.sdkInt <= maxSdk;
     } catch (_) {
-      // If we cannot determine the platform, assume it is not an old Android
-      // version so we don't block the scan flow.
       return false;
+    }
+  }
+
+  String _statusMessage(BleStatus status) {
+    switch (status) {
+      case BleStatus.poweredOff:
+        return 'El Bluetooth está apagado. Actívalo para escanear.';
+      case BleStatus.unauthorized:
+        return 'Faltan permisos de Bluetooth. Ve a Ajustes > Apps > Zéfiro Strix > Permisos y actívalos manualmente.';
+      case BleStatus.locationServicesDisabled:
+        return 'Activa la Ubicación (GPS) del sistema para poder escanear.';
+      case BleStatus.unsupported:
+        return 'Este teléfono no soporta Bluetooth Low Energy.';
+      case BleStatus.unknown:
+        return 'Estado del Bluetooth desconocido. Intenta de nuevo en un momento.';
+      case BleStatus.ready:
+        return '';
     }
   }
 
   Future<void> _startScan() async {
     try {
-      // 1. Check Bluetooth adapter is on
-      if (_ble.status != BleStatus.ready) {
+      // 1. Pedir permisos runtime PRIMERO — sin esto, el estado del adaptador
+      //    nunca se reporta como "ready" en Android, sin importar cuántas
+      //    veces se reintente.
+      final granted = await _requestPermissions();
+      if (!granted) return;
+
+      // 2. Recién ahora chequear el estado real del adaptador. El plugin
+      //    puede reportar "unknown" por un instante justo después de crearse
+      //    (aún no le llega el primer aviso del sistema operativo), así que
+      //    si eso pasa esperamos un poco al primer estado real antes de
+      //    darnos por vencidos.
+      var status = _ble.status;
+      if (status == BleStatus.unknown) {
+        status = await _ble.statusStream
+            .firstWhere((s) => s != BleStatus.unknown)
+            .timeout(const Duration(seconds: 3), onTimeout: () => status);
+      }
+
+      if (status != BleStatus.ready) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('El Bluetooth está apagado. Actívalo para escanear.'),
-            ),
+            SnackBar(content: Text(_statusMessage(status))),
           );
         }
         return;
       }
 
-      // 2. Request runtime permissions
-      final granted = await _requestPermissions();
-      if (!granted) return;
-
-      // 3. Start scanning
+      // 3. Escanear
       if (mounted) {
         setState(() {
           _isScanning = true;
@@ -126,7 +161,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
         });
       });
 
-      // Stop scanning after 10 seconds
       _scanTimeout?.cancel();
       _scanTimeout = Timer(const Duration(seconds: 10), () {
         _scanSubscription?.cancel();
