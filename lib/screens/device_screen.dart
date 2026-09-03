@@ -51,7 +51,7 @@ class _DeviceScreenState extends State<DeviceScreen> {
         setState(() => _config = config);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error reading config: $e")));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error al leer configuración: $e")));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -74,9 +74,9 @@ class _DeviceScreenState extends State<DeviceScreen> {
         sysTime: "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}",
       );
       await widget.bleService.syncTime(sync);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Time synced")));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Hora sincronizada")));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error syncing time: $e")));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error al sincronizar hora: $e")));
     }
   }
 
@@ -84,7 +84,7 @@ class _DeviceScreenState extends State<DeviceScreen> {
     if (_config == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Read the configuration first")),
+          const SnackBar(content: Text("Primero lee la configuración")),
         );
       }
       return;
@@ -100,13 +100,13 @@ class _DeviceScreenState extends State<DeviceScreen> {
               await widget.bleService.writeConfig(updated);
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Location updated & saved")),
+                  const SnackBar(content: Text("Ubicación actualizada y guardada")),
                 );
               }
             } catch (e) {
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text("Error saving location: $e")),
+                  SnackBar(content: Text("Error al guardar ubicación: $e")),
                 );
               }
             }
@@ -137,7 +137,7 @@ class _DeviceScreenState extends State<DeviceScreen> {
         ShareParams(files: [XFile(file.path)], text: 'Zéfiro Strix Config'),
       );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error exporting config: $e")));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error al exportar configuración: $e")));
     }
   }
 
@@ -205,7 +205,7 @@ class _DeviceScreenState extends State<DeviceScreen> {
         }
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error importing config: $e")));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error al importar configuración: $e")));
     }
   }
 
@@ -213,7 +213,7 @@ class _DeviceScreenState extends State<DeviceScreen> {
     if (_config == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Read the configuration first")),
+          const SnackBar(content: Text("Primero lee la configuración")),
         );
       }
       return;
@@ -289,7 +289,7 @@ class _DeviceScreenState extends State<DeviceScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_status?.unitName ?? "Device Control"),
+        title: Text(_status?.unitName ?? "Control del dispositivo"),
         actions: [
           IconButton(onPressed: _loadConfig, icon: const Icon(Icons.refresh)),
           IconButton(onPressed: _exportConfig, icon: const Icon(Icons.share)),
@@ -321,14 +321,14 @@ class _DeviceScreenState extends State<DeviceScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text("Status", style: Theme.of(context).textTheme.titleLarge),
+            Text("Estado", style: Theme.of(context).textTheme.titleLarge),
             const Divider(),
-            Text("Version: ${_status?.version ?? 'N/A'}"),
-            Text("RTC Time: ${_status?.rtcTime ?? 'N/A'}"),
-            Text("SD Free: ${_status?.sdFreeMB ?? 0} MB"),
-            Text("Sessions: ${_status?.sessions ?? 0}"),
-            Text("Recordings: ${_status?.recordings ?? 0}"),
-            if (_status?.boardType != null) Text("Board: ${_status!.boardType}"),
+            Text("Versión: ${_status?.version ?? 'N/A'}"),
+            Text("Hora del dispositivo: ${_status?.rtcTime ?? 'N/A'}"),
+            Text("SD libre: ${_status?.sdFreeMB ?? 0} MB"),
+            Text("Sesiones: ${_status?.sessions ?? 0}"),
+            Text("Grabaciones: ${_status?.recordings ?? 0}"),
+            if (_status?.boardType != null) Text("Placa: ${_status!.boardType}"),
           ],
         ),
       ),
@@ -339,12 +339,12 @@ class _DeviceScreenState extends State<DeviceScreen> {
     return Wrap(
       spacing: 8,
       children: [
-        ElevatedButton.icon(onPressed: _syncTime, icon: const Icon(Icons.access_time), label: const Text("Sync Time")),
-        ElevatedButton.icon(onPressed: _updateLocation, icon: const Icon(Icons.location_on), label: const Text("Update GPS (UTM)")),
+        ElevatedButton.icon(onPressed: _syncTime, icon: const Icon(Icons.access_time), label: const Text("Sincronizar hora")),
+        ElevatedButton.icon(onPressed: _updateLocation, icon: const Icon(Icons.location_on), label: const Text("Actualizar GPS (UTM)")),
         ElevatedButton.icon(
             onPressed: _confirmShutdown,
             icon: const Icon(Icons.power_settings_new),
-            label: const Text("Shutdown"),
+            label: const Text("Apagar"),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade100, foregroundColor: Colors.red)),
       ],
     );
