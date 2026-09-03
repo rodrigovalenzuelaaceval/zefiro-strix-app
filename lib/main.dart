@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'screens/scanner_screen.dart';
 import 'screens/device_screen.dart';
-import 'screens/splash_screen.dart';
 import 'services/ble_service.dart';
 import 'theme/app_theme.dart';
 
@@ -24,9 +23,10 @@ class _ZefiroAppState extends State<ZefiroApp> {
     return MaterialApp(
       title: 'Zéfiro Strix',
       theme: AppTheme.theme,
-      initialRoute: '/splash',
+      // El splash ahora es nativo (flutter_native_splash), no una pantalla
+      // Dart con temporizador artificial. Arrancamos directo en el scanner.
+      initialRoute: '/scanner',
       routes: {
-        '/splash': (context) => const SplashScreen(),
         '/scanner': (context) => ScannerScreen(bleService: _bleService),
         '/device': (context) => DeviceScreen(bleService: _bleService),
       },

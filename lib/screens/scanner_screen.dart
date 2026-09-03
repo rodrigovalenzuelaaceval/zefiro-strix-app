@@ -186,7 +186,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Zéfiro Strix Scanner"),
+        title: const Text("Buscar dispositivo Zéfiro Strix"),
         actions: [
           if (_isScanning)
             const Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)))
@@ -210,7 +210,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
                 }
               } catch (e) {
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Connection failed: $e")));
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error de conexión: $e")));
                 }
               }
             },

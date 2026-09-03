@@ -10,6 +10,7 @@ import '../models/config_model.dart';
 import '../models/status_model.dart';
 import '../models/sync_models.dart';
 import 'location_screen.dart';
+import 'config_screen.dart';
 
 class DeviceScreen extends StatefulWidget {
   final BleService bleService;
@@ -22,18 +23,14 @@ class DeviceScreen extends StatefulWidget {
 class _DeviceScreenState extends State<DeviceScreen> {
   StatusModel? _status;
   ConfigModel? _config;
+  List<TrackModel>? _tracks;
   bool _isLoading = false;
 
-  late TextEditingController _stationNameController;
-  late TextEditingController _unitNameController;
   StreamSubscription<StatusModel>? _statusSubscription;
 
   @override
   void initState() {
     super.initState();
-    _stationNameController = TextEditingController();
-    _unitNameController = TextEditingController();
-
     _statusSubscription = widget.bleService.statusStream.listen((status) {
       if (mounted) setState(() => _status = status);
     });
@@ -43,8 +40,6 @@ class _DeviceScreenState extends State<DeviceScreen> {
   @override
   void dispose() {
     _statusSubscription?.cancel();
-    _stationNameController.dispose();
-    _unitNameController.dispose();
     super.dispose();
   }
 
@@ -53,10 +48,7 @@ class _DeviceScreenState extends State<DeviceScreen> {
     try {
       final config = await widget.bleService.readConfig();
       if (mounted) {
-        setState(() {
-          _config = config;
-          _syncControllersFromConfig();
-        });
+        setState(() => _config = config);
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error reading config: $e")));
@@ -65,18 +57,13 @@ class _DeviceScreenState extends State<DeviceScreen> {
     }
   }
 
-  /// Updates the text controllers only when the config changed from an
-  /// external source (e.g. a fresh read from the device or an import), so we
-  /// don't clobber the user's cursor position/focus on every rebuild.
-  void _syncControllersFromConfig() {
-    final config = _config;
-    if (config == null) return;
-    if (_stationNameController.text != config.stationName) {
-      _stationNameController.text = config.stationName;
-    }
-    if (_unitNameController.text != config.unitName) {
-      _unitNameController.text = config.unitName;
-    }
+  /// Lee las pistas por separado (paginado, V3.3.0). Se llama solo cuando
+  /// hace falta (al abrir el editor completo), no en cada refresh de
+  /// Status/Config, para no gastar varias lecturas BLE de más.
+  Future<List<TrackModel>> _loadTracks() async {
+    final tracks = await widget.bleService.readAllTracks();
+    if (mounted) setState(() => _tracks = tracks);
+    return tracks;
   }
 
   Future<void> _syncTime() async {
@@ -129,12 +116,23 @@ class _DeviceScreenState extends State<DeviceScreen> {
     );
   }
 
+  /// Exporta config + tracks juntos en un solo archivo. V3.3.0: ya no son un
+  /// único objeto (ver ConfigModel/TracksPageModel), así que el archivo
+  /// exportado ahora tiene la forma {"config": {...}, "tracks": [...]}.
+  /// Archivos exportados con la versión anterior de la app (config con
+  /// tracks embebidos) ya no son compatibles con este importador.
   Future<void> _exportConfig() async {
     if (_config == null) return;
     try {
+      final tracks = _tracks ?? await _loadTracks();
+      final bundle = {
+        "config": _config!.toJson(),
+        "tracks": tracks.map((t) => t.toJson()).toList(),
+      };
+
       final directory = await getTemporaryDirectory();
       final file = File('${directory.path}/config.json');
-      await file.writeAsString(json.encode(_config!.toJson()));
+      await file.writeAsString(json.encode(bundle));
       await SharePlus.instance.share(
         ShareParams(files: [XFile(file.path)], text: 'Zéfiro Strix Config'),
       );
@@ -154,18 +152,25 @@ class _DeviceScreenState extends State<DeviceScreen> {
       final file = File(picked.path!);
       final raw = await file.readAsString();
       final decoded = json.decode(raw);
-      if (decoded is! Map<String, dynamic>) {
-        throw const FormatException("El archivo no contiene un objeto JSON válido");
+      if (decoded is! Map<String, dynamic> ||
+          decoded['config'] is! Map<String, dynamic> ||
+          decoded['tracks'] is! List) {
+        throw const FormatException(
+          "El archivo no tiene el formato esperado ({config, tracks}). Archivos exportados con versiones anteriores de la app no son compatibles.",
+        );
       }
-      final imported = ConfigModel.fromJson(decoded);
+
+      final importedConfig = ConfigModel.fromJson(decoded['config'] as Map<String, dynamic>);
+      final importedTracks = (decoded['tracks'] as List)
+          .map((t) => TrackModel.fromJson(t as Map<String, dynamic>))
+          .toList();
 
       if (!mounted) return;
       setState(() {
-        _config = imported;
-        _syncControllersFromConfig();
+        _config = importedConfig;
+        _tracks = importedTracks;
       });
 
-      // Ask whether to write it to the device immediately or just load it.
       final writeNow = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -185,7 +190,13 @@ class _DeviceScreenState extends State<DeviceScreen> {
       );
 
       if (writeNow == true) {
-        await _saveConfig();
+        await widget.bleService.writeConfig(importedConfig);
+        await widget.bleService.writeAllTracks(importedTracks);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Config y pistas escritas al dispositivo")),
+          );
+        }
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -198,14 +209,49 @@ class _DeviceScreenState extends State<DeviceScreen> {
     }
   }
 
-  Future<void> _saveConfig() async {
-    if (_config == null) return;
-    try {
-      await widget.bleService.writeConfig(_config!);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Config saved")));
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error saving config: $e")));
+  Future<void> _openConfigEditor() async {
+    if (_config == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Read the configuration first")),
+        );
+      }
+      return;
     }
+
+    setState(() => _isLoading = true);
+    List<TrackModel> tracks;
+    try {
+      tracks = _tracks ?? await _loadTracks();
+    } catch (e) {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error al leer las pistas: $e")),
+        );
+      }
+      return;
+    }
+    setState(() => _isLoading = false);
+
+    if (!mounted) return;
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ConfigScreen(
+          config: _config!,
+          tracks: tracks,
+          onSaveConfig: (updated) async {
+            setState(() => _config = updated);
+            await widget.bleService.writeConfig(updated);
+          },
+          onSaveTracks: (updatedTracks) async {
+            setState(() => _tracks = updatedTracks);
+            await widget.bleService.writeAllTracks(updatedTracks);
+          },
+        ),
+      ),
+    );
   }
 
   Future<void> _confirmShutdown() async {
@@ -261,7 +307,7 @@ class _DeviceScreenState extends State<DeviceScreen> {
                   const SizedBox(height: 16),
                   _buildSyncActions(),
                   const SizedBox(height: 16),
-                  if (_config != null) _buildConfigEditor(),
+                  if (_config != null) _buildConfigEditorButton(),
                 ],
               ),
             ),
@@ -304,28 +350,11 @@ class _DeviceScreenState extends State<DeviceScreen> {
     );
   }
 
-  Widget _buildConfigEditor() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text("Configuration", style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _stationNameController,
-          decoration: const InputDecoration(labelText: "Station Name"),
-          onChanged: (v) => _config!.stationName = v,
-        ),
-        TextField(
-          controller: _unitNameController,
-          decoration: const InputDecoration(labelText: "Unit Name"),
-          onChanged: (v) => _config!.unitName = v,
-        ),
-        const SizedBox(height: 16),
-        ElevatedButton(
-          onPressed: _saveConfig,
-          child: const Text("Save Configuration"),
-        ),
-      ],
+  Widget _buildConfigEditorButton() {
+    return ElevatedButton.icon(
+      onPressed: _openConfigEditor,
+      icon: const Icon(Icons.tune),
+      label: const Text("Editar configuración completa"),
     );
   }
 }

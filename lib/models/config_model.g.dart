@@ -22,9 +22,7 @@ ConfigModel _$ConfigModelFromJson(Map<String, dynamic> json) => ConfigModel(
   pauseMs: (json['pauseMs'] as num).toInt(),
   volume: (json['volume'] as num).toInt(),
   gainFactor: (json['gainFactor'] as num).toInt(),
-  tracks: (json['tracks'] as List<dynamic>)
-      .map((e) => TrackModel.fromJson(e as Map<String, dynamic>))
-      .toList(),
+  trackCount: (json['trackCount'] as num).toInt(),
   totalSessions: (json['totalSessions'] as num).toInt(),
   totalRecordings: (json['totalRecordings'] as num).toInt(),
 );
@@ -46,7 +44,7 @@ Map<String, dynamic> _$ConfigModelToJson(ConfigModel instance) =>
       'pauseMs': instance.pauseMs,
       'volume': instance.volume,
       'gainFactor': instance.gainFactor,
-      'tracks': instance.tracks.map((e) => e.toJson()).toList(),
+      'trackCount': instance.trackCount,
       'totalSessions': instance.totalSessions,
       'totalRecordings': instance.totalRecordings,
     };

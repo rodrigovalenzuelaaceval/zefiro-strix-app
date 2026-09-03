@@ -19,7 +19,11 @@ class ConfigModel {
   int pauseMs;
   int volume;
   int gainFactor;
-  List<TrackModel> tracks;
+  // V3.3.0: tracks ya NO viaja en Config (puede superar el límite de 512
+  // bytes de BLE con hasta 30 pistas). Ver TracksPageModel + BleService
+  // readAllTracks()/writeAllTracks(). trackCount sí viaja aquí, para saber
+  // cuántas pistas hay sin tener que leer Tracks primero.
+  int trackCount;
   int totalSessions;
   int totalRecordings;
 
@@ -39,7 +43,7 @@ class ConfigModel {
     required this.pauseMs,
     required this.volume,
     required this.gainFactor,
-    required this.tracks,
+    required this.trackCount,
     required this.totalSessions,
     required this.totalRecordings,
   });

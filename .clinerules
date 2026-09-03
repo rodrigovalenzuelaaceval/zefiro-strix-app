@@ -1,0 +1,16 @@
+# Reglas de respaldo automático
+
+Después de completar cualquier tarea que modifique código y que termine
+exitosamente (por ejemplo: flutter analyze sin errores, o confirmación
+explícita del usuario de que una prueba funcionó), ejecuta automáticamente,
+sin preguntar:
+
+git add .
+git commit -m "<mensaje corto y descriptivo del cambio realizado>"
+git push
+
+Si git push falla (por ejemplo por falta de autenticación), avisa al
+usuario con el mensaje de error exacto en vez de reintentar solo.
+
+No hagas commit ni push si el cambio dejó el proyecto en un estado roto
+(por ejemplo, si flutter analyze reporta errores nuevos).

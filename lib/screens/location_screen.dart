@@ -159,8 +159,8 @@ class _LocationScreenState extends State<LocationScreen> {
         ),
         const SizedBox(height: 24),
         _buildInfoRow('Zona UTM', _utmZone ?? 'N/A'),
-        _buildInfoRow('Easting', _easting?.toString() ?? 'N/A'),
-        _buildInfoRow('Northing', _northing?.toString() ?? 'N/A'),
+        _buildInfoRow('Este', _easting?.toString() ?? 'N/A'),
+        _buildInfoRow('Norte', _northing?.toString() ?? 'N/A'),
         _buildInfoRow(
           'Precisión',
           _accuracy != null ? '${_accuracy!.toStringAsFixed(1)} m' : 'N/A',

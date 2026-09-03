@@ -1,0 +1,20 @@
+# Configuración de splash nativo — Manual de Identidad v2
+# Genera con: dart run flutter_native_splash:create
+flutter_native_splash:
+  # iOS y Android < 12: imagen completa (búho + wordmark), pantalla completa.
+  color: "#171C18"
+  image: assets/splash/splash_full.png
+
+  android_12:
+    # Android 12+ solo permite un ícono centrado (máx. ~240dp) + branding
+    # opcional anclado abajo — no texto libre alrededor del ícono.
+    image: assets/splash/splash_icon_android12.png
+    icon_background_color: "#171C18"
+    color: "#171C18"
+    branding: assets/splash/splash_branding_android12.png
+
+  android: true
+  ios: true
+  web: false
+
+  # Sin fullscreen: true para no ocultar la barra de estado innecesariamente.
