@@ -11,6 +11,7 @@ import '../models/status_model.dart';
 import '../models/sync_models.dart';
 import 'location_screen.dart';
 import 'config_screen.dart';
+import '../theme/app_theme.dart';
 
 class DeviceScreen extends StatefulWidget {
   final BleService bleService;
@@ -329,9 +330,68 @@ class _DeviceScreenState extends State<DeviceScreen> {
             Text("Sesiones: ${_status?.sessions ?? 0}"),
             Text("Grabaciones: ${_status?.recordings ?? 0}"),
             if (_status?.boardType != null) Text("Placa: ${_status!.boardType}"),
+            if (_status?.batPct != null || _status?.batV != null) ...[
+              const Divider(),
+              _buildBatteryRow(),
+            ],
+            if (_status?.bmeOk == true) ...[
+              const Divider(),
+              Text(
+                "Temperatura: ${_status!.tempC?.toStringAsFixed(1) ?? 'N/D'} °C   "
+                "Humedad: ${_status!.humPct?.toStringAsFixed(0) ?? 'N/D'} %   "
+                "Presión: ${_status!.presHpa?.toStringAsFixed(0) ?? 'N/D'} hPa",
+              ),
+            ] else if (_status != null && _status!.bmeOk == false) ...[
+              const Divider(),
+              Text(
+                "Sensor ambiental: N/D",
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildBatteryRow() {
+    final pct = _status?.batPct;
+    final volt = _status?.batV;
+    Color barColor = AppColors.green;
+    if (pct != null) {
+      if (pct <= 15) {
+        barColor = Colors.red;
+      } else if (pct <= 30) {
+        barColor = AppColors.orange;
+      }
+    }
+
+    return Row(
+      children: [
+        Icon(Icons.battery_std, color: barColor, size: 20),
+        const SizedBox(width: 8),
+        Expanded(
+          child: pct != null
+              ? ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: pct / 100,
+                    minHeight: 8,
+                    backgroundColor: AppColors.mist,
+                    valueColor: AlwaysStoppedAnimation(barColor),
+                  ),
+                )
+              : const Text("N/D"),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          [
+            if (pct != null) "$pct%",
+            if (volt != null) "${volt.toStringAsFixed(2)} V",
+          ].join(" · "),
+          style: AppTextStyles.tabularValue(fontSize: 13),
+        ),
+      ],
     );
   }
 
