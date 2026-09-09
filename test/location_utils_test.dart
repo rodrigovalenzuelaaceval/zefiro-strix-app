@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import '../lib/utils/location_utils.dart';
+import 'package:apk_zefiro/utils/location_utils.dart';
 
 void main() {
   group('LocationUtils.latLonToUTM', () {

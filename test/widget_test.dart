@@ -4,7 +4,6 @@
 // screen without throwing any exceptions. It does not mock BleService nor
 // simulate real BLE hardware.
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:apk_zefiro/main.dart';
