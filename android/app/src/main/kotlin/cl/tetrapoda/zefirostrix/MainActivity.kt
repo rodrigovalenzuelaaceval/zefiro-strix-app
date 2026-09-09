@@ -1,4 +1,4 @@
-package com.example.apk_zefiro
+package cl.tetrapoda.zefirostrix
 
 import io.flutter.embedding.android.FlutterActivity
 
