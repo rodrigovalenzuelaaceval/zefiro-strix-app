@@ -1,20 +1,24 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide ConnectionState;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
-import '../services/ble_service.dart';
+import 'package:geolocator/geolocator.dart';
+import '../services/ble_service_base.dart';
 import '../models/config_model.dart';
 import '../models/status_model.dart';
 import '../models/sync_models.dart';
-import 'location_screen.dart';
-import 'config_screen.dart';
 import '../theme/app_theme.dart';
+import '../utils/location_utils.dart';
+import '../utils/sea_calculator.dart';
 
+/// Pantalla única y continua: Estado + Configuración completa fusionados,
+/// igual que el portal web (dashboard arriba, secciones numeradas 01-05
+/// abajo, todo visible, nada detrás de un botón opcional).
 class DeviceScreen extends StatefulWidget {
-  final BleService bleService;
+  final BleServiceBase bleService;
   const DeviceScreen({super.key, required this.bleService});
 
   @override
@@ -25,9 +29,37 @@ class _DeviceScreenState extends State<DeviceScreen> {
   StatusModel? _status;
   ConfigModel? _config;
   List<TrackModel>? _tracks;
+
   bool _isLoading = false;
+  bool _isSaving = false;
+  bool _isGpsLoading = false;
+  bool _connected = true;
 
   StreamSubscription<StatusModel>? _statusSubscription;
+  StreamSubscription<ConnectionState>? _connectionSubscription;
+
+  // Identificación
+  late TextEditingController _stationNameCtrl;
+  late TextEditingController _projectNameCtrl;
+  late TextEditingController _researcherCtrl;
+  late TextEditingController _unitNameCtrl;
+
+  // Audio
+  late TextEditingController _recTimeCtrl;
+  late TextEditingController _pauseMsCtrl;
+  late TextEditingController _gainFactorCtrl;
+
+  // Pistas
+  List<TextEditingController> _trackControllers = [];
+
+  // Ubicación / SEA
+  double? _rawLat;
+  double? _rawLon;
+  double? _gpsAccuracy;
+  bool _seaMode = false;
+  SeaSchedule? _seaSchedule;
+  String? _seaError;
+  String? _gpsError;
 
   @override
   void initState() {
@@ -35,102 +67,251 @@ class _DeviceScreenState extends State<DeviceScreen> {
     _statusSubscription = widget.bleService.statusStream.listen((status) {
       if (mounted) setState(() => _status = status);
     });
-    _loadConfig();
+    _connectionSubscription = widget.bleService.connectionStateStream.listen((state) {
+      if (mounted) setState(() => _connected = state == ConnectionState.connected);
+    });
+    _loadAll();
   }
 
   @override
   void dispose() {
     _statusSubscription?.cancel();
+    _connectionSubscription?.cancel();
+    _stationNameCtrl.dispose();
+    _projectNameCtrl.dispose();
+    _researcherCtrl.dispose();
+    _unitNameCtrl.dispose();
+    _recTimeCtrl.dispose();
+    _pauseMsCtrl.dispose();
+    _gainFactorCtrl.dispose();
+    for (final c in _trackControllers) {
+      c.dispose();
+    }
     super.dispose();
   }
 
-  Future<void> _loadConfig() async {
+  Future<void> _loadAll() async {
     setState(() => _isLoading = true);
     try {
       final config = await widget.bleService.readConfig();
+      final tracks = await widget.bleService.readAllTracks();
       if (mounted) {
-        setState(() => _config = config);
+        setState(() {
+          _config = config;
+          _tracks = tracks;
+          _syncControllers();
+        });
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error al leer configuración: $e")));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error al leer configuración: $e")),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  /// Lee las pistas por separado (paginado, V3.3.0). Se llama solo cuando
-  /// hace falta (al abrir el editor completo), no en cada refresh de
-  /// Status/Config, para no gastar varias lecturas BLE de más.
-  Future<List<TrackModel>> _loadTracks() async {
-    final tracks = await widget.bleService.readAllTracks();
-    if (mounted) setState(() => _tracks = tracks);
-    return tracks;
+  void _syncControllers() {
+    final c = _config;
+    if (c == null) return;
+    _stationNameCtrl = TextEditingController(text: c.stationName);
+    _projectNameCtrl = TextEditingController(text: c.projectName);
+    _researcherCtrl = TextEditingController(text: c.researcher);
+    _unitNameCtrl = TextEditingController(text: c.unitName);
+    _recTimeCtrl = TextEditingController(text: c.recTime.toString());
+    _pauseMsCtrl = TextEditingController(text: c.pauseMs.toString());
+    _gainFactorCtrl = TextEditingController(text: c.gainFactor.toString());
+    _trackControllers = (_tracks ?? [])
+        .map((t) => TextEditingController(text: t.species))
+        .toList();
   }
+  // ==========================================================================
+  // GPS + Modo SEA (inline, sin pantalla aparte — igual que el portal, que
+  // reusa las coordenadas crudas del momento de la captura dentro de la
+  // misma sesión)
+  // ==========================================================================
+
+  Future<void> _captureGps() async {
+    setState(() {
+      _isGpsLoading = true;
+      _gpsError = null;
+    });
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        setState(() => _gpsError = 'El servicio de ubicación está desactivado.');
+        return;
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          setState(() => _gpsError = 'Permiso de ubicación denegado.');
+          return;
+        }
+      }
+      if (permission == LocationPermission.deniedForever) {
+        setState(() => _gpsError = 'Permiso denegado permanentemente. Actívalo en Ajustes.');
+        return;
+      }
+
+      final pos = await Geolocator.getCurrentPosition();
+      final utm = LocationUtils.latLonToUTM(pos.latitude, pos.longitude);
+
+      setState(() {
+        _rawLat = pos.latitude;
+        _rawLon = pos.longitude;
+        _gpsAccuracy = pos.accuracy;
+        _config?.utmZone = utm['utmZone'] as String;
+        _config?.utmEaste = utm['utmEaste'] as int;
+        _config?.utmNorte = utm['utmNorte'] as int;
+      });
+
+      if (_seaMode) _recalculateSea();
+    } catch (e) {
+      setState(() => _gpsError = 'No se pudo obtener la ubicación: $e');
+    } finally {
+      if (mounted) setState(() => _isGpsLoading = false);
+    }
+  }
+
+  void _recalculateSea() {
+    if (_rawLat == null || _rawLon == null) {
+      setState(() {
+        _seaError = 'Captura la ubicación GPS primero para usar el modo SEA.';
+        _seaSchedule = null;
+      });
+      return;
+    }
+    final schedule = SeaCalculator.calculate(lat: _rawLat!, lon: _rawLon!);
+    setState(() {
+      if (schedule == null) {
+        _seaError = 'No se pudo calcular amanecer/atardecer para esta ubicación.';
+        _seaSchedule = null;
+      } else {
+        _seaError = null;
+        _seaSchedule = schedule;
+        _config?.morningStart = schedule.morningStart;
+        _config?.morningEnd = schedule.morningEnd;
+        _config?.nightStart = schedule.nightStart;
+        _config?.nightEnd = schedule.nightEnd;
+      }
+    });
+  }
+
+  void _setMode(bool sea) {
+    setState(() => _seaMode = sea);
+    if (sea) _recalculateSea();
+  }
+
+  TimeOfDay _parseTime(String hhmm) {
+    final parts = hhmm.split(':');
+    final h = int.tryParse(parts.isNotEmpty ? parts[0] : '') ?? 0;
+    final m = int.tryParse(parts.length > 1 ? parts[1] : '') ?? 0;
+    return TimeOfDay(hour: h, minute: m);
+  }
+
+  String _formatTimeOfDay(TimeOfDay t) =>
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+  Future<void> _pickTime(String currentValue, void Function(String) onPicked) async {
+    final picked = await showTimePicker(context: context, initialTime: _parseTime(currentValue));
+    if (picked != null) setState(() => onPicked(_formatTimeOfDay(picked)));
+  }
+
+  // ==========================================================================
+  // Guardar / Sincronizar / Cerrar
+  // ==========================================================================
 
   Future<void> _syncTime() async {
     try {
       final now = DateTime.now();
-      final sync = TimeSyncModel(
+      await widget.bleService.syncTime(TimeSyncModel(
         sysDate: "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}",
         sysTime: "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}",
-      );
-      await widget.bleService.syncTime(sync);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Hora sincronizada")));
+      ));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Hora sincronizada")));
+      }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error al sincronizar hora: $e")));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error al sincronizar hora: $e")));
+      }
     }
   }
 
-  Future<void> _updateLocation() async {
-    if (_config == null) {
+  Future<void> _saveAll() async {
+    if (_config == null || _tracks == null) return;
+
+    _config!.stationName = _stationNameCtrl.text;
+    _config!.projectName = _projectNameCtrl.text;
+    _config!.researcher = _researcherCtrl.text;
+    _config!.unitName = _unitNameCtrl.text;
+    _config!.recTime = int.tryParse(_recTimeCtrl.text) ?? _config!.recTime;
+    _config!.pauseMs = int.tryParse(_pauseMsCtrl.text) ?? _config!.pauseMs;
+    _config!.gainFactor = int.tryParse(_gainFactorCtrl.text) ?? _config!.gainFactor;
+    for (var i = 0; i < _tracks!.length; i++) {
+      _tracks![i].species = _trackControllers[i].text;
+    }
+    _config!.trackCount = _tracks!.length;
+
+    setState(() => _isSaving = true);
+    try {
+      await widget.bleService.writeConfig(_config!);
+      await widget.bleService.writeAllTracks(_tracks!);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Primero lee la configuración")),
+          const SnackBar(content: Text("Configuración guardada")),
         );
       }
-      return;
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error al guardar: $e")));
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
     }
-
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => LocationScreen(
-          config: _config!,
-          onUseCoordinates: (updated) async {
-            setState(() => _config = updated);
-            try {
-              await widget.bleService.writeConfig(updated);
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Ubicación actualizada y guardada")),
-                );
-              }
-            } catch (e) {
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text("Error al guardar ubicación: $e")),
-                );
-              }
-            }
-          },
-        ),
-      ),
-    );
   }
 
-  /// Exporta config + tracks juntos en un solo archivo. V3.3.0: ya no son un
-  /// único objeto (ver ConfigModel/TracksPageModel), así que el archivo
-  /// exportado ahora tiene la forma {"config": {...}, "tracks": [...]}.
-  /// Archivos exportados con la versión anterior de la app (config con
-  /// tracks embebidos) ya no son compatibles con este importador.
-  Future<void> _exportConfig() async {
-    if (_config == null) return;
+  Future<void> _confirmCloseAndArm() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("¿Finalizar configuración?"),
+        content: const Text(
+          "El dispositivo comenzará a operar según el ciclo programado. Guarda la configuración antes de continuar si hiciste cambios.",
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text("Cancelar")),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text("Finalizar")),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
     try {
-      final tracks = _tracks ?? await _loadTracks();
+      await widget.bleService.sendCommand(CommandModel(shutdown: true));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Zéfiro Strix configurado y operando")),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      }
+    }
+  }
+
+  Future<void> _exportConfig() async {
+    if (_config == null || _tracks == null) return;
+    try {
       final bundle = {
         "config": _config!.toJson(),
-        "tracks": tracks.map((t) => t.toJson()).toList(),
+        "tracks": _tracks!.map((t) => t.toJson()).toList(),
       };
-
       final directory = await getTemporaryDirectory();
       final file = File('${directory.path}/config.json');
       await file.writeAsString(json.encode(bundle));
@@ -138,223 +319,272 @@ class _DeviceScreenState extends State<DeviceScreen> {
         ShareParams(files: [XFile(file.path)], text: 'Zéfiro Strix Config'),
       );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error al exportar configuración: $e")));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error al exportar: $e")));
+      }
     }
   }
 
   Future<void> _importConfig() async {
     try {
-      final picked = await FilePicker.pickFile(
-        type: FileType.custom,
-        allowedExtensions: ['json'],
-      );
+      final picked = await FilePicker.pickFile(type: FileType.custom, allowedExtensions: ['json']);
       if (picked == null || picked.path == null) return;
-
-      final file = File(picked.path!);
-      final raw = await file.readAsString();
+      final raw = await File(picked.path!).readAsString();
       final decoded = json.decode(raw);
       if (decoded is! Map<String, dynamic> ||
           decoded['config'] is! Map<String, dynamic> ||
           decoded['tracks'] is! List) {
-        throw const FormatException(
-          "El archivo no tiene el formato esperado ({config, tracks}). Archivos exportados con versiones anteriores de la app no son compatibles.",
-        );
+        throw const FormatException("Formato de archivo no reconocido.");
       }
-
       final importedConfig = ConfigModel.fromJson(decoded['config'] as Map<String, dynamic>);
       final importedTracks = (decoded['tracks'] as List)
           .map((t) => TrackModel.fromJson(t as Map<String, dynamic>))
           .toList();
-
       if (!mounted) return;
       setState(() {
         _config = importedConfig;
         _tracks = importedTracks;
+        _syncControllers();
       });
-
-      final writeNow = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text("Config importado"),
-          content: const Text("¿Quieres escribir esta configuración al dispositivo ahora por BLE, o solo cargarla para revisarla antes de guardar?"),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text("Solo cargar"),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text("Escribir ahora"),
-            ),
-          ],
-        ),
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Config importado. Revisa y guarda cuando quieras.")),
       );
-
-      if (writeNow == true) {
-        await widget.bleService.writeConfig(importedConfig);
-        await widget.bleService.writeAllTracks(importedTracks);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Config y pistas escritas al dispositivo")),
-          );
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Config cargado. Revisa y guarda cuando quieras.")),
-          );
-        }
-      }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error al importar configuración: $e")));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error al importar: $e")));
+      }
     }
   }
 
-  Future<void> _openConfigEditor() async {
-    if (_config == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Primero lee la configuración")),
-        );
-      }
-      return;
-    }
-
-    setState(() => _isLoading = true);
-    List<TrackModel> tracks;
-    try {
-      tracks = _tracks ?? await _loadTracks();
-    } catch (e) {
-      setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error al leer las pistas: $e")),
-        );
-      }
-      return;
-    }
-    setState(() => _isLoading = false);
-
-    if (!mounted) return;
-
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ConfigScreen(
-          config: _config!,
-          tracks: tracks,
-          onSaveConfig: (updated) async {
-            setState(() => _config = updated);
-            await widget.bleService.writeConfig(updated);
-          },
-          onSaveTracks: (updatedTracks) async {
-            setState(() => _tracks = updatedTracks);
-            await widget.bleService.writeAllTracks(updatedTracks);
-          },
-        ),
-      ),
-    );
-  }
-
-  Future<void> _confirmShutdown() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("¿Apagar el dispositivo?"),
-        content: const Text("Se enviará el comando de apagado al dispositivo."),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text("Cancelar"),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text("Apagar"),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true) return;
-
-    try {
-      await widget.bleService.sendCommand(CommandModel(shutdown: true));
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Comando de apagado enviado")));
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error al enviar apagado: $e")));
-    }
-  }
+  // ==========================================================================
+  // UI
+  // ==========================================================================
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_status?.unitName ?? "Control del dispositivo"),
-        actions: [
-          IconButton(onPressed: _loadConfig, icon: const Icon(Icons.refresh)),
-          IconButton(onPressed: _exportConfig, icon: const Icon(Icons.share)),
-          IconButton(onPressed: _importConfig, icon: const Icon(Icons.file_open)),
-        ],
-      ),
+      backgroundColor: AppColors.ink,
+      appBar: _buildHeader(),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildStatusCard(),
-                  const SizedBox(height: 16),
-                  _buildSyncActions(),
-                  const SizedBox(height: 16),
-                  if (_config != null) _buildConfigEditorButton(),
-                ],
-              ),
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              children: [
+                ..._buildDashboard(),
+                const SizedBox(height: 20),
+                _sectionHeader("01", "Identificación"),
+                _fieldBox(_stationNameCtrl, "Nombre de estación"),
+                _fieldBox(_projectNameCtrl, "Proyecto"),
+                _fieldBox(_researcherCtrl, "Investigador"),
+                _fieldBox(_unitNameCtrl, "Nombre de unidad"),
+                const SizedBox(height: 20),
+                _sectionHeader("02", "Ubicación y hora"),
+                _buildLocationSection(),
+                const SizedBox(height: 12),
+                _outlinedActionButton("Sincronizar hora", Icons.access_time, _syncTime),
+                const SizedBox(height: 20),
+                _sectionHeader("03", "Horarios de ciclo"),
+                _buildModeTabs(),
+                const SizedBox(height: 12),
+                _buildScheduleFields(),
+                const SizedBox(height: 20),
+                _sectionHeader("04", "Grabación"),
+                _fieldBox(_recTimeCtrl, "Tiempo de grabación (segundos)", numeric: true),
+                _fieldBox(_pauseMsCtrl, "Pausa entre pistas (ms)", numeric: true),
+                _buildVolumeSlider(),
+                _fieldBox(_gainFactorCtrl, "Factor de ganancia", numeric: true),
+                const SizedBox(height: 20),
+                _sectionHeader("05", "Especies y orden"),
+                ..._buildTrackRows(),
+                _addTrackButton(),
+                const SizedBox(height: 24),
+                ElevatedButton.icon(
+                  onPressed: _isSaving ? null : _saveAll,
+                  icon: _isSaving
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.check),
+                  label: const Text("Guardar configuración"),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    TextButton.icon(onPressed: _exportConfig, icon: const Icon(Icons.share, size: 16), label: const Text("Exportar")),
+                    TextButton.icon(onPressed: _importConfig, icon: const Icon(Icons.file_open, size: 16), label: const Text("Importar")),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                _buildFooter(),
+              ],
             ),
-    );
-  }
 
-  Widget _buildStatusCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text("Estado", style: Theme.of(context).textTheme.titleLarge),
-            const Divider(),
-            Text("Versión: ${_status?.version ?? 'N/A'}"),
-            Text("Hora del dispositivo: ${_status?.rtcTime ?? 'N/A'}"),
-            Text("SD libre: ${_status?.sdFreeMB ?? 0} MB"),
-            Text("Sesiones: ${_status?.sessions ?? 0}"),
-            Text("Grabaciones: ${_status?.recordings ?? 0}"),
-            if (_status?.boardType != null) Text("Placa: ${_status!.boardType}"),
-            if (_status?.batPct != null || _status?.batV != null) ...[
-              const Divider(),
-              _buildBatteryRow(),
-            ],
-            if (_status?.bmeOk == true) ...[
-              const Divider(),
-              Text(
-                "Temperatura: ${_status!.tempC?.toStringAsFixed(1) ?? 'N/D'} °C   "
-                "Humedad: ${_status!.humPct?.toStringAsFixed(0) ?? 'N/D'} %   "
-                "Presión: ${_status!.presHpa?.toStringAsFixed(0) ?? 'N/D'} hPa",
-              ),
-            ] else if (_status != null && _status!.bmeOk == false) ...[
-              const Divider(),
-              Text(
-                "Sensor ambiental: N/D",
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
-          ],
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          child: ElevatedButton(
+            onPressed: _confirmCloseAndArm,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.green,
+              foregroundColor: AppColors.ink,
+              minimumSize: const Size.fromHeight(48),
+            ),
+            child: const Text("Cerrar y armar equipo", style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildBatteryRow() {
+  PreferredSizeWidget _buildHeader() {
+    return AppBar(
+      backgroundColor: AppColors.ink,
+      elevation: 0,
+      titleSpacing: 12,
+      title: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: Image.asset('assets/icon/icon.png', width: 30, height: 30, fit: BoxFit.contain),
+          ),
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                "ZÉFIRO STRIX",
+                style: TextStyle(color: AppColors.orange, fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1.0),
+              ),
+              Text(
+                _status?.unitName ?? "Dispositivo",
+                style: TextStyle(color: AppColors.paper, fontSize: 17, fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+        ],
+      ),
+      actions: [
+        Padding(
+          padding: const EdgeInsets.only(right: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _connected ? AppColors.green : AppColors.sage,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                _connected ? "Conectado" : "Sin conexión",
+                style: TextStyle(color: AppColors.sageLight, fontSize: 11),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  List<Widget> _buildDashboard() {
+    final rtc = _status?.rtcTime;
+    String horaTxt = 'N/D';
+    String fechaTxt = 'N/D';
+    if (rtc != null && rtc.length >= 19) {
+      try {
+        final dt = DateTime.parse(rtc.replaceFirst(' ', 'T'));
+        horaTxt = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+        const dias = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
+        const meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+        fechaTxt = '${dias[dt.weekday - 1]}, ${dt.day} de ${meses[dt.month - 1]} de ${dt.year}';
+      } catch (_) {}
+    }
+
+    return [
+      Row(
+        children: [
+          Expanded(child: _dashCard("Hora", horaTxt, tabular: true)),
+          const SizedBox(width: 8),
+          Expanded(child: _dashCard("Fecha", fechaTxt, small: true)),
+        ],
+      ),
+      const SizedBox(height: 8),
+      Row(
+        children: [
+          Expanded(child: _dashCard("SD libre", "${_status?.sdFreeMB ?? 0} MB", muted: true)),
+          const SizedBox(width: 8),
+          Expanded(child: _dashCard("Grabaciones", "${_status?.recordings ?? 0}", muted: true)),
+          const SizedBox(width: 8),
+          Expanded(child: _dashCard("Sesiones", "${_status?.sessions ?? 0}", muted: true)),
+        ],
+      ),
+      const SizedBox(height: 6),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text("v${_status?.version ?? '—'}", style: TextStyle(color: AppColors.sageLight, fontSize: 10)),
+            Text(_status?.boardType ?? '—', style: TextStyle(color: AppColors.sageLight, fontSize: 10)),
+          ],
+        ),
+      ),
+      const SizedBox(height: 12),
+      if (_status?.batPct != null || _status?.batV != null) _batteryCard(),
+      if (_status?.bmeOk == true) ...[
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(child: _envCard("Temp.", _status!.tempC != null ? "${_status!.tempC!.toStringAsFixed(1)}°" : "N/D")),
+            const SizedBox(width: 8),
+            Expanded(child: _envCard("Humedad", _status!.humPct != null ? "${_status!.humPct!.toStringAsFixed(0)}%" : "N/D")),
+            const SizedBox(width: 8),
+            Expanded(child: _envCard("Presión", _status!.presHpa != null ? _status!.presHpa!.toStringAsFixed(0) : "N/D")),
+          ],
+        ),
+      ],
+    ];
+  }
+
+  Widget _dashCard(String label, String value, {bool tabular = false, bool small = false, bool muted = false}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: muted ? AppColors.mist.withValues(alpha: 0.12) : AppColors.paper,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label.toUpperCase(), style: TextStyle(color: AppColors.sage, fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 0.4)),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: tabular
+                ? AppTextStyles.tabularValue(fontSize: 16, color: muted ? AppColors.paper : AppColors.ink)
+                : TextStyle(fontSize: small ? 12 : 15, fontWeight: FontWeight.w700, color: muted ? AppColors.paper : AppColors.ink),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _envCard(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(color: AppColors.paper, borderRadius: BorderRadius.circular(10)),
+      child: Column(
+        children: [
+          Text(value, style: TextStyle(color: AppColors.blue, fontSize: 15, fontWeight: FontWeight.w700)),
+          Text(label.toUpperCase(), style: TextStyle(color: AppColors.sage, fontSize: 8, fontWeight: FontWeight.w700)),
+        ],
+      ),
+    );
+  }
+
+  Widget _batteryCard() {
     final pct = _status?.batPct;
     final volt = _status?.batV;
     Color barColor = AppColors.green;
@@ -365,56 +595,329 @@ class _DeviceScreenState extends State<DeviceScreen> {
         barColor = AppColors.orange;
       }
     }
-
-    return Row(
-      children: [
-        Icon(Icons.battery_std, color: barColor, size: 20),
-        const SizedBox(width: 8),
-        Expanded(
-          child: pct != null
-              ? ClipRRect(
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(color: AppColors.paper, borderRadius: BorderRadius.circular(10)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text("BATERÍA", style: TextStyle(color: AppColors.sage, fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 0.4)),
+              if (volt != null)
+                Text("${volt.toStringAsFixed(2)} V", style: AppTextStyles.tabularValue(fontSize: 12, color: AppColors.ink)),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: ClipRRect(
                   borderRadius: BorderRadius.circular(4),
                   child: LinearProgressIndicator(
-                    value: pct / 100,
+                    value: pct != null ? pct / 100 : 0,
                     minHeight: 8,
-                    backgroundColor: AppColors.mist,
+                    backgroundColor: AppColors.border,
                     valueColor: AlwaysStoppedAnimation(barColor),
                   ),
-                )
-              : const Text("N/D"),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          [
-            if (pct != null) "$pct%",
-            if (volt != null) "${volt.toStringAsFixed(2)} V",
-          ].join(" · "),
-          style: AppTextStyles.tabularValue(fontSize: 13),
-        ),
-      ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(pct != null ? "$pct%" : "N/D", style: TextStyle(color: barColor, fontWeight: FontWeight.w700, fontSize: 13)),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildSyncActions() {
-    return Wrap(
-      spacing: 8,
+  Widget _sectionHeader(String num, String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          Text(num, style: TextStyle(color: AppColors.orange, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.2)),
+          const SizedBox(width: 8),
+          Text(title, style: TextStyle(color: AppColors.paper, fontSize: 16, fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+
+  Widget _fieldBox(TextEditingController ctrl, String label, {bool numeric = false}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: TextField(
+        controller: ctrl,
+        keyboardType: numeric ? TextInputType.number : TextInputType.text,
+        style: TextStyle(color: AppColors.paper, fontSize: 14),
+        decoration: InputDecoration(
+          labelText: label,
+          labelStyle: TextStyle(color: AppColors.sageLight, fontSize: 13),
+          filled: true,
+          fillColor: const Color(0xFF1C1E19),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: AppColors.border.withValues(alpha: 0.3))),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: AppColors.border.withValues(alpha: 0.3))),
+          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: AppColors.orange)),
+        ),
+      ),
+    );
+  }
+
+  Widget _outlinedActionButton(String label, IconData icon, VoidCallback onPressed) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 18, color: AppColors.orange),
+        label: Text(label, style: TextStyle(color: AppColors.paper)),
+        style: OutlinedButton.styleFrom(
+          side: BorderSide(color: AppColors.border.withValues(alpha: 0.4)),
+          padding: const EdgeInsets.symmetric(vertical: 12),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLocationSection() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: const Color(0xFF1C1E19), borderRadius: BorderRadius.circular(8)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (_config != null) ...[
+            Text("Zona: ${_config!.utmZone}   Este: ${_config!.utmEaste}   Norte: ${_config!.utmNorte}",
+                style: TextStyle(color: AppColors.sageLight, fontSize: 12)),
+            if (_gpsAccuracy != null)
+              Text("Precisión: ${_gpsAccuracy!.toStringAsFixed(1)} m", style: TextStyle(color: AppColors.sageLight, fontSize: 11)),
+            const SizedBox(height: 8),
+          ],
+          if (_gpsError != null) ...[
+            Text(_gpsError!, style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+            const SizedBox(height: 8),
+          ],
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _isGpsLoading ? null : _captureGps,
+              icon: _isGpsLoading
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : Icon(Icons.location_on, size: 18, color: AppColors.orange),
+              label: Text("Capturar ubicación GPS", style: TextStyle(color: AppColors.paper)),
+              style: OutlinedButton.styleFrom(side: BorderSide(color: AppColors.border.withValues(alpha: 0.4))),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModeTabs() {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          Expanded(child: _modeTab("Manual", !_seaMode, () => _setMode(false))),
+          Expanded(child: _modeTab("Modo SEA", _seaMode, () => _setMode(true))),
+        ],
+      ),
+    );
+  }
+
+  Widget _modeTab(String label, bool active, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: active ? AppColors.paper : Colors.transparent,
+          borderRadius: BorderRadius.circular(7),
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: active ? AppColors.ink : AppColors.sageLight,
+            fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+            fontSize: 13,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildScheduleFields() {
+    if (_config == null) return const SizedBox.shrink();
+
+    if (_seaMode) {
+      if (_seaError != null) {
+        return Text(_seaError!, style: const TextStyle(color: Colors.redAccent, fontSize: 13));
+      }
+      if (_seaSchedule == null) return const SizedBox.shrink();
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(color: const Color(0xFF1C1E19), borderRadius: BorderRadius.circular(8)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _scheduleRow("Ciclo mañana", "${_seaSchedule!.morningStart} – ${_seaSchedule!.morningEnd}"),
+            _scheduleRow("Ciclo noche", "${_seaSchedule!.nightStart} – ${_seaSchedule!.nightEnd}"),
+          ],
+        ),
+      );
+    }
+
+    return Column(
       children: [
-        ElevatedButton.icon(onPressed: _syncTime, icon: const Icon(Icons.access_time), label: const Text("Sincronizar hora")),
-        ElevatedButton.icon(onPressed: _updateLocation, icon: const Icon(Icons.location_on), label: const Text("Actualizar GPS (UTM)")),
-        ElevatedButton.icon(
-            onPressed: _confirmShutdown,
-            icon: const Icon(Icons.power_settings_new),
-            label: const Text("Apagar"),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade100, foregroundColor: Colors.red)),
+        _timeButton("Inicio mañana", _config!.morningStart, (v) => setState(() => _config!.morningStart = v)),
+        _timeButton("Fin mañana", _config!.morningEnd, (v) => setState(() => _config!.morningEnd = v)),
+        _timeButton("Inicio noche", _config!.nightStart, (v) => setState(() => _config!.nightStart = v)),
+        _timeButton("Fin noche", _config!.nightEnd, (v) => setState(() => _config!.nightEnd = v)),
       ],
     );
   }
 
-  Widget _buildConfigEditorButton() {
-    return ElevatedButton.icon(
-      onPressed: _openConfigEditor,
-      icon: const Icon(Icons.tune),
-      label: const Text("Editar configuración completa"),
+  Widget _scheduleRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(color: AppColors.sageLight, fontSize: 13)),
+          Text(value, style: AppTextStyles.tabularValue(fontSize: 13, color: AppColors.blue)),
+        ],
+      ),
+    );
+  }
+
+  Widget _timeButton(String label, String value, void Function(String) onSet) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: const Color(0xFF1C1E19),
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => _pickTime(value, onSet),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.border.withValues(alpha: 0.3)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(label, style: TextStyle(color: AppColors.paper, fontSize: 13)),
+                Row(
+                  children: [
+                    Text(value, style: AppTextStyles.tabularValue(fontSize: 14, color: AppColors.blue)),
+                    const SizedBox(width: 6),
+                    Icon(Icons.edit, size: 14, color: AppColors.sage),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVolumeSlider() {
+    if (_config == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text("Volumen: ${_config!.volume}", style: TextStyle(color: AppColors.sageLight, fontSize: 13)),
+          SliderTheme(
+            data: SliderThemeData(activeTrackColor: AppColors.orange, thumbColor: AppColors.orange, inactiveTrackColor: AppColors.border),
+            child: Slider(
+              value: _config!.volume.toDouble().clamp(0, 100),
+              min: 0,
+              max: 100,
+              divisions: 100,
+              onChanged: (v) => setState(() => _config!.volume = v.round()),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildTrackRows() {
+    if (_tracks == null) return [];
+    return List.generate(_tracks!.length, (i) {
+      final track = _tracks![i];
+      return Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(color: const Color(0xFF1C1E19), borderRadius: BorderRadius.circular(8)),
+        child: Row(
+          children: [
+            SizedBox(width: 22, child: Text("${track.order}", style: TextStyle(color: AppColors.sageLight, fontSize: 13))),
+            Expanded(
+              child: TextField(
+                controller: _trackControllers[i],
+                style: TextStyle(color: AppColors.paper, fontSize: 13),
+                decoration: const InputDecoration(border: InputBorder.none, isDense: true),
+              ),
+            ),
+            Switch(
+              value: track.active,
+              activeThumbColor: AppColors.green,
+              onChanged: (v) => setState(() => track.active = v),
+            ),
+            IconButton(
+              icon: Icon(Icons.delete_outline, color: AppColors.sage, size: 20),
+              onPressed: () => setState(() {
+                _tracks!.removeAt(i);
+                _trackControllers.removeAt(i).dispose();
+                for (var j = 0; j < _tracks!.length; j++) {
+                  _tracks![j].order = j + 1;
+                }
+              }),
+            ),
+          ],
+        ),
+      );
+    });
+  }
+
+  Widget _addTrackButton() {
+    if (_tracks == null || _tracks!.length >= 30) return const SizedBox.shrink();
+    return OutlinedButton.icon(
+      onPressed: () => setState(() {
+        _tracks!.add(TrackModel(order: _tracks!.length + 1, species: "Nueva especie", active: true));
+        _trackControllers.add(TextEditingController(text: "Nueva especie"));
+      }),
+      icon: Icon(Icons.add, color: AppColors.orange),
+      label: Text("Agregar pista", style: TextStyle(color: AppColors.paper)),
+      style: OutlinedButton.styleFrom(side: BorderSide(color: AppColors.border.withValues(alpha: 0.4))),
+    );
+  }
+
+  Widget _buildFooter() {
+    return Center(
+      child: Opacity(
+        opacity: 0.7,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Image.asset('assets/icon/pluma.png', width: 16, height: 16, errorBuilder: (_, _, _) => const SizedBox.shrink()),
+            const SizedBox(width: 6),
+            Text("Tetrapoda® SpA · Zéfiro Strix v1.6.0", style: TextStyle(color: AppColors.sageLight, fontSize: 10)),
+          ],
+        ),
+      ),
     );
   }
 }
+

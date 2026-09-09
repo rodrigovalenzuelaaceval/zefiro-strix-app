@@ -1,49 +1,41 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:device_info_plus/device_info_plus.dart';
+import 'ble_service_base.dart';
 import '../models/config_model.dart';
 import '../models/status_model.dart';
 import '../models/sync_models.dart';
 import '../models/tracks_page_model.dart';
 
-/// Simple connection state exposed to the UI, independent of any BLE package.
-enum ConnectionState {
-  connecting,
-  connected,
-  disconnected,
-}
+export 'ble_service_base.dart' show ConnectionState, BleServiceBase;
 
-class BleService {
+class BleService implements BleServiceBase {
   static const String serviceUuid = "4d617b4f-4320-4e1b-b6c0-1e6a52a81ba9";
   static const String configUuid = "770440e9-947e-4983-a405-3fdd67dd43db";
   static const String statusUuid = "babdcdd4-83aa-45da-9444-1737d5ff6a2e";
   static const String timeSyncUuid = "398eaab7-1b17-4529-ab0d-d2ccedce80fe";
   static const String commandUuid = "62b3db56-e022-4efc-a2e7-af19c4f69a3f";
-  // V3.3.0: tracks paginado (ver docs/zefiro_ble_protocol_v1.md sección 6).
   static const String tracksPageSelectUuid = "ee9249c7-eb47-43ef-a8b8-132e9f24b7ed";
   static const String tracksDataUuid = "9d181ffd-a6ae-497b-96b2-719fb223531d";
 
   FlutterReactiveBle? _bleInstance;
-
-  /// Lazily creates the [FlutterReactiveBle] instance. The constructor eagerly
-  /// initializes the platform, so we defer it until a BLE operation is actually
-  /// needed (e.g. connect). This also keeps widget tests from touching the
-  /// platform when no BLE operation is triggered.
   FlutterReactiveBle get _ble => _bleInstance ??= FlutterReactiveBle();
 
   String? _connectedDeviceId;
 
   final _statusController = StreamController<StatusModel>.broadcast();
+  @override
   Stream<StatusModel> get statusStream => _statusController.stream;
 
   final _connectionStateController = StreamController<ConnectionState>.broadcast();
+  @override
   Stream<ConnectionState> get connectionStateStream => _connectionStateController.stream;
 
   StreamSubscription<ConnectionStateUpdate>? _connectionSubscription;
   StreamSubscription<List<int>>? _statusSubscription;
 
-  /// Builds a [QualifiedCharacteristic] for the given characteristic UUID on
-  /// the currently connected device.
   QualifiedCharacteristic _characteristic(String characteristicUuid) {
     final deviceId = _connectedDeviceId;
     if (deviceId == null) {
@@ -68,6 +60,97 @@ class BleService {
     }
   }
 
+  // ==========================================================================
+  // PERMISOS Y ESTADO DEL ADAPTADOR (migrado desde scanner_screen.dart, para
+  // que MockBleService pueda tener su propia versión trivial del mismo
+  // método sin que la pantalla necesite saber cuál implementación tiene)
+  // ==========================================================================
+
+  Future<bool> _requestPermissions({void Function(String)? onMessage}) async {
+    final permissions = <Permission>[
+      Permission.bluetoothScan,
+      Permission.bluetoothConnect,
+    ];
+
+    if (await _isAndroidSdkAtMost(30)) {
+      permissions.add(Permission.locationWhenInUse);
+    }
+
+    final statuses = await permissions.request();
+
+    final denied = statuses.values.any((status) => status.isDenied);
+    final permanentlyDenied = statuses.values.any((status) => status.isPermanentlyDenied);
+
+    if (permanentlyDenied) {
+      onMessage?.call(
+        'Bloqueaste el permiso de Bluetooth permanentemente. Actívalo manualmente desde Ajustes del sistema > Apps > Zéfiro Strix > Permisos.',
+      );
+      return false;
+    }
+
+    if (denied) {
+      onMessage?.call('Permiso de Bluetooth denegado. Concede los permisos para escanear dispositivos.');
+      return false;
+    }
+
+    return true;
+  }
+
+  Future<bool> _isAndroidSdkAtMost(int maxSdk) async {
+    try {
+      final androidInfo = await DeviceInfoPlugin().androidInfo;
+      return androidInfo.version.sdkInt <= maxSdk;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  String _statusMessage(BleStatus status) {
+    switch (status) {
+      case BleStatus.poweredOff:
+        return 'El Bluetooth está apagado. Actívalo para escanear.';
+      case BleStatus.unauthorized:
+        return 'Faltan permisos de Bluetooth. Ve a Ajustes > Apps > Zéfiro Strix > Permisos y actívalos manualmente.';
+      case BleStatus.locationServicesDisabled:
+        return 'Activa la Ubicación (GPS) del sistema para poder escanear.';
+      case BleStatus.unsupported:
+        return 'Este teléfono no soporta Bluetooth Low Energy.';
+      case BleStatus.unknown:
+        return 'Estado del Bluetooth desconocido. Intenta de nuevo en un momento.';
+      case BleStatus.ready:
+        return '';
+    }
+  }
+
+  @override
+  Future<bool> ensureReady({void Function(String message)? onMessage}) async {
+    final granted = await _requestPermissions(onMessage: onMessage);
+    if (!granted) return false;
+
+    var status = _ble.status;
+    if (status == BleStatus.unknown) {
+      status = await _ble.statusStream
+          .firstWhere((s) => s != BleStatus.unknown)
+          .timeout(const Duration(seconds: 3), onTimeout: () => status);
+    }
+
+    if (status != BleStatus.ready) {
+      onMessage?.call(_statusMessage(status));
+      return false;
+    }
+
+    return true;
+  }
+
+  @override
+  Stream<DiscoveredDevice> scanForDevices() {
+    return _ble.scanForDevices(
+      withServices: const [],
+      scanMode: ScanMode.lowLatency,
+    );
+  }
+
+  @override
   Future<void> connect(String deviceId) async {
     _connectedDeviceId = deviceId;
 
@@ -94,10 +177,8 @@ class BleService {
       }
     });
 
-    // Wait until the device reports connected (or the connection fails).
     await connectedCompleter.future;
 
-    // Negotiate MTU
     try {
       await _ble.requestMtu(deviceId: deviceId, mtu: 247);
     } catch (e) {
@@ -107,8 +188,8 @@ class BleService {
     _setupStatusNotifications();
   }
 
+  @override
   Future<void> disconnect() async {
-    // Cancelling the connection subscription disconnects the device.
     await _connectionSubscription?.cancel();
     _cleanup();
   }
@@ -140,9 +221,6 @@ class BleService {
     });
   }
 
-  /// Lee un characteristic reintentando si llega vacío (carrera de tiempos
-  /// conocida en Android/MIUI justo después de conectar o de escribir en
-  /// una característica relacionada, como el selector de página de tracks).
   Future<List<int>> _readWithRetry(String uuid, {int maxAttempts = 4}) async {
     List<int> value = [];
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -155,6 +233,7 @@ class BleService {
     return value;
   }
 
+  @override
   Future<ConfigModel?> readConfig() async {
     if (_connectedDeviceId == null) return null;
 
@@ -175,6 +254,7 @@ class BleService {
     }
   }
 
+  @override
   Future<void> writeConfig(ConfigModel config) async {
     if (_connectedDeviceId == null) return;
     String jsonStr = json.encode(config.toJson());
@@ -184,28 +264,17 @@ class BleService {
     );
   }
 
-  // ==========================================================================
-  // TRACKS PAGINADO (V3.3.0)
-  // ==========================================================================
-  // El firmware limita cualquier característica BLE a 512 bytes (límite
-  // absoluto del protocolo ATT, no ajustable). Con hasta 30 pistas, el
-  // arreglo completo no cabe en una sola lectura, así que se lee y escribe
-  // de a páginas de 5. Ver docs/zefiro_ble_protocol_v1.md sección 6.
-
+  @override
   Future<TracksPageModel> readTracksPage(int page) async {
     if (_connectedDeviceId == null) {
       throw StateError("No device connected");
     }
 
-    // 1. Seleccionar la página deseada.
     await _ble.writeCharacteristicWithResponse(
       _characteristic(tracksPageSelectUuid),
       value: utf8.encode(page.toString()),
     );
 
-    // 2. Leerla (con el mismo margen de reintento que Config, por la misma
-    //    carrera de tiempos: el dispositivo puede tardar un instante en
-    //    reflejar la página recién seleccionada).
     final value = await _readWithRetry(tracksDataUuid);
 
     if (value.isEmpty) {
@@ -221,6 +290,7 @@ class BleService {
     }
   }
 
+  @override
   Future<void> writeTracksPage(TracksPageModel page) async {
     if (_connectedDeviceId == null) return;
     String jsonStr = json.encode(page.toJson());
@@ -230,7 +300,7 @@ class BleService {
     );
   }
 
-  /// Lee todas las páginas y devuelve la lista completa de pistas, en orden.
+  @override
   Future<List<TrackModel>> readAllTracks() async {
     final firstPage = await readTracksPage(0);
     final all = <TrackModel>[...firstPage.tracks];
@@ -243,8 +313,7 @@ class BleService {
     return all;
   }
 
-  /// Escribe la lista completa de pistas, partiéndola en páginas de 5.
-  /// [pageSize] debe coincidir con TRACKS_PAGE_SIZE del firmware (5).
+  @override
   Future<void> writeAllTracks(List<TrackModel> tracks, {int pageSize = 5}) async {
     final totalTracks = tracks.length;
     final totalPages = totalTracks == 0 ? 1 : (totalTracks / pageSize).ceil();
@@ -263,6 +332,7 @@ class BleService {
     }
   }
 
+  @override
   Future<void> syncTime(TimeSyncModel sync) async {
     if (_connectedDeviceId == null) return;
     String jsonStr = json.encode(sync.toJson());
@@ -272,6 +342,7 @@ class BleService {
     );
   }
 
+  @override
   Future<void> sendCommand(CommandModel command) async {
     if (_connectedDeviceId == null) return;
     String jsonStr = json.encode(command.toJson());
