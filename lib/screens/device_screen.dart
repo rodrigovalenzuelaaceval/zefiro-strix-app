@@ -503,12 +503,15 @@ class _DeviceScreenState extends State<DeviceScreen> {
     }
 
     return [
-      Row(
-        children: [
-          Expanded(child: _dashCard("Hora", horaTxt, tabular: true)),
-          const SizedBox(width: 8),
-          Expanded(child: _dashCard("Fecha", fechaTxt, small: true)),
-        ],
+      IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(child: _dashCard("Hora", horaTxt, tabular: true)),
+            const SizedBox(width: 8),
+            Expanded(child: _dashCard("Fecha", fechaTxt, small: true)),
+          ],
+        ),
       ),
       const SizedBox(height: 8),
       Row(
