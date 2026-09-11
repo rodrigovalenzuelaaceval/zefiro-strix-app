@@ -465,20 +465,31 @@ class _DeviceScreenState extends State<DeviceScreen> {
       actions: [
         Padding(
           padding: const EdgeInsets.only(right: 12),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _connected ? AppColors.green : AppColors.sage,
-                ),
+              Row(
+                children: [
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _connected ? AppColors.green : AppColors.sage,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    _connected ? "Conectado" : "Sin conexión",
+                    style: TextStyle(color: AppColors.sageLight, fontSize: 11),
+                  ),
+                ],
               ),
-              const SizedBox(width: 6),
+              const SizedBox(height: 2),
               Text(
-                _connected ? "Conectado" : "Sin conexión",
-                style: TextStyle(color: AppColors.sageLight, fontSize: 11),
+                "Tetrapoda®",
+                style: TextStyle(color: AppColors.sage, fontSize: 8, fontWeight: FontWeight.w600, letterSpacing: 0.5),
               ),
             ],
           ),

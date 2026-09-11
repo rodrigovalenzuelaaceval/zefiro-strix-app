@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart' show DiscoveredDevice;
 import '../services/ble_service_base.dart';
 import '../services/mock_ble_service.dart';
+import '../theme/app_theme.dart';
 import 'device_screen.dart';
 
 class ScannerScreen extends StatefulWidget {
@@ -128,7 +129,17 @@ class _ScannerScreenState extends State<ScannerScreen> with SingleTickerProvider
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Buscar dispositivo Zéfiro Strix"),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              "Tetrapoda®",
+              style: TextStyle(color: AppColors.orange, fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1.0),
+            ),
+            const Text("Buscar dispositivo Zéfiro Strix"),
+          ],
+        ),
         actions: [
           IconButton(onPressed: _isScanning ? null : _startScan, icon: const Icon(Icons.refresh))
         ],
