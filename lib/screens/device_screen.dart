@@ -390,8 +390,6 @@ class _DeviceScreenState extends State<DeviceScreen> {
                 const SizedBox(height: 20),
                 _sectionHeader("04", "Grabación"),
                 _fieldBox(_recTimeCtrl, "Tiempo de grabación (segundos)", numeric: true),
-                _fieldBox(_pauseMsCtrl, "Pausa entre pistas (ms)", numeric: true),
-                _buildVolumeSlider(),
                 _fieldBox(_gainFactorCtrl, "Factor de ganancia", numeric: true),
                 const SizedBox(height: 20),
                 _sectionHeader("05", "Especies y orden"),
@@ -835,29 +833,6 @@ class _DeviceScreenState extends State<DeviceScreen> {
             ),
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildVolumeSlider() {
-    if (_config == null) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text("Volumen: ${_config!.volume}", style: TextStyle(color: AppColors.sageLight, fontSize: 13)),
-          SliderTheme(
-            data: SliderThemeData(activeTrackColor: AppColors.orange, thumbColor: AppColors.orange, inactiveTrackColor: AppColors.border),
-            child: Slider(
-              value: _config!.volume.toDouble().clamp(0, 100),
-              min: 0,
-              max: 100,
-              divisions: 100,
-              onChanged: (v) => setState(() => _config!.volume = v.round()),
-            ),
-          ),
-        ],
       ),
     );
   }
