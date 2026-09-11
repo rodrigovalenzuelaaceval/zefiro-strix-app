@@ -443,8 +443,8 @@ class _DeviceScreenState extends State<DeviceScreen> {
       title: Row(
         children: [
           ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: Image.asset('assets/icon/icon.png', width: 30, height: 30, fit: BoxFit.contain),
+            borderRadius: BorderRadius.circular(8),
+            child: Image.asset('assets/icon/icon.png', width: 40, height: 40, fit: BoxFit.contain),
           ),
           const SizedBox(width: 10),
           Column(
@@ -469,8 +469,8 @@ class _DeviceScreenState extends State<DeviceScreen> {
           child: Row(
             children: [
               Container(
-                width: 8,
-                height: 8,
+                width: 12,
+                height: 12,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: _connected ? AppColors.green : AppColors.sage,
