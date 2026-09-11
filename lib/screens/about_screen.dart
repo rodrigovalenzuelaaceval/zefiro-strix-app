@@ -150,14 +150,14 @@ class AboutScreen extends StatelessWidget {
     );
   }
 
-  Widget _contactRow(IconData icon, String label, VoidCallback onTap) {
+  Widget _contactRow(FaIconData icon, String label, VoidCallback onTap) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: InkWell(
         onTap: onTap,
         child: Row(
           children: [
-            Icon(icon, size: 16, color: AppColors.sage),
+            FaIcon(icon, size: 16, color: AppColors.sage),
             const SizedBox(width: 10),
             Text(label, style: TextStyle(color: AppColors.paper, fontSize: 12)),
           ],
