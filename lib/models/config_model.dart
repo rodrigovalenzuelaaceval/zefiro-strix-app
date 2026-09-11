@@ -58,11 +58,42 @@ class TrackModel {
   String species;
   bool active;
 
+  // commonName/scientificName son derivados de species, NO viajan aparte en
+  // el JSON hacia el firmware todavía (ver docs/SOLICITUDES_APP.md, punto 2,
+  // en el repo zefiro-strix-firmware: separar en el protocolo BLE es un
+  // pendiente coordinado, mientras tanto la app parsea el string combinado
+  // "Nombre común (Nombre científico)" al cargar, y lo reconstruye al guardar).
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  late String commonName;
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  late String scientificName;
+
   TrackModel({
     required this.order,
     required this.species,
     required this.active,
-  });
+  }) {
+    _parseSpecies();
+  }
+
+  void _parseSpecies() {
+    final match = RegExp(r'^(.*?)\s*\(([^)]+)\)\s*$').firstMatch(species);
+    if (match != null) {
+      commonName = match.group(1)!.trim();
+      scientificName = match.group(2)!.trim();
+    } else {
+      commonName = species.trim();
+      scientificName = '';
+    }
+  }
+
+  void updateNames({required String commonName, required String scientificName}) {
+    this.commonName = commonName.trim();
+    this.scientificName = scientificName.trim();
+    species = this.scientificName.isEmpty
+        ? this.commonName
+        : '${this.commonName} (${this.scientificName})';
+  }
 
   factory TrackModel.fromJson(Map<String, dynamic> json) => _$TrackModelFromJson(json);
   Map<String, dynamic> toJson() => _$TrackModelToJson(this);

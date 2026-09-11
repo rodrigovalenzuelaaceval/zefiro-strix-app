@@ -51,7 +51,8 @@ class _DeviceScreenState extends State<DeviceScreen> {
   late TextEditingController _gainFactorCtrl;
 
   // Pistas
-  List<TextEditingController> _trackControllers = [];
+  List<TextEditingController> _commonNameControllers = [];
+  List<TextEditingController> _scientificNameControllers = [];
 
   // Ubicación / SEA
   double? _rawLat;
@@ -85,7 +86,10 @@ class _DeviceScreenState extends State<DeviceScreen> {
     _recTimeCtrl.dispose();
     _pauseMsCtrl.dispose();
     _gainFactorCtrl.dispose();
-    for (final c in _trackControllers) {
+    for (final c in _commonNameControllers) {
+      c.dispose();
+    }
+    for (final c in _scientificNameControllers) {
       c.dispose();
     }
     super.dispose();
@@ -124,8 +128,11 @@ class _DeviceScreenState extends State<DeviceScreen> {
     _recTimeCtrl = TextEditingController(text: c.recTime.toString());
     _pauseMsCtrl = TextEditingController(text: c.pauseMs.toString());
     _gainFactorCtrl = TextEditingController(text: c.gainFactor.toString());
-    _trackControllers = (_tracks ?? [])
-        .map((t) => TextEditingController(text: t.species))
+    _commonNameControllers = (_tracks ?? [])
+        .map((t) => TextEditingController(text: t.commonName))
+        .toList();
+    _scientificNameControllers = (_tracks ?? [])
+        .map((t) => TextEditingController(text: t.scientificName))
         .toList();
   }
   // ==========================================================================
@@ -254,7 +261,10 @@ class _DeviceScreenState extends State<DeviceScreen> {
     _config!.pauseMs = int.tryParse(_pauseMsCtrl.text) ?? _config!.pauseMs;
     _config!.gainFactor = int.tryParse(_gainFactorCtrl.text) ?? _config!.gainFactor;
     for (var i = 0; i < _tracks!.length; i++) {
-      _tracks![i].species = _trackControllers[i].text;
+      _tracks![i].updateNames(
+        commonName: _commonNameControllers[i].text,
+        scientificName: _scientificNameControllers[i].text,
+      );
     }
     _config!.trackCount = _tracks!.length;
 
@@ -394,7 +404,14 @@ class _DeviceScreenState extends State<DeviceScreen> {
                 _fieldBox(_gainFactorCtrl, "Factor de ganancia", numeric: true),
                 const SizedBox(height: 20),
                 _sectionHeader("05", "Especies y orden"),
-                ..._buildTrackRows(),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    "Sugerido: menor a mayor tamaño corporal, rapaces cazadoras al final.",
+                    style: TextStyle(color: AppColors.sageLight, fontSize: 11),
+                  ),
+                ),
+                _buildTracksReorderable(),
                 _addTrackButton(),
                 const SizedBox(height: 24),
                 ElevatedButton.icon(
@@ -923,51 +940,93 @@ class _DeviceScreenState extends State<DeviceScreen> {
     setState(() => ctrl.text = selected.toString());
   }
 
-  List<Widget> _buildTrackRows() {
-    if (_tracks == null) return [];
-    return List.generate(_tracks!.length, (i) {
-      final track = _tracks![i];
-      return Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(color: const Color(0xFF1C1E19), borderRadius: BorderRadius.circular(8)),
-        child: Row(
-          children: [
-            SizedBox(width: 22, child: Text("${track.order}", style: TextStyle(color: AppColors.sageLight, fontSize: 13))),
-            Expanded(
-              child: TextField(
-                controller: _trackControllers[i],
-                style: TextStyle(color: AppColors.paper, fontSize: 13),
-                decoration: const InputDecoration(border: InputBorder.none, isDense: true),
-              ),
+  Widget _buildTracksReorderable() {
+    if (_tracks == null) return const SizedBox.shrink();
+    return ReorderableListView(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      onReorder: (oldIndex, newIndex) {
+        setState(() {
+          if (newIndex > oldIndex) newIndex -= 1;
+          final track = _tracks!.removeAt(oldIndex);
+          _tracks!.insert(newIndex, track);
+          final commonCtrl = _commonNameControllers.removeAt(oldIndex);
+          _commonNameControllers.insert(newIndex, commonCtrl);
+          final sciCtrl = _scientificNameControllers.removeAt(oldIndex);
+          _scientificNameControllers.insert(newIndex, sciCtrl);
+          for (var i = 0; i < _tracks!.length; i++) {
+            _tracks![i].order = i + 1;
+          }
+        });
+      },
+      children: List.generate(_tracks!.length, (i) => _trackRow(i)),
+    );
+  }
+
+  Widget _trackRow(int i) {
+    final track = _tracks![i];
+    return Container(
+      key: ValueKey(_commonNameControllers[i]),
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(color: const Color(0xFF1C1E19), borderRadius: BorderRadius.circular(8)),
+      child: Row(
+        children: [
+          ReorderableDragStartListener(
+            index: i,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Icon(Icons.drag_handle, color: AppColors.sage, size: 20),
             ),
-            Switch(
-              value: track.active,
-              activeThumbColor: AppColors.green,
-              onChanged: (v) => setState(() => track.active = v),
+          ),
+          SizedBox(width: 22, child: Text("${track.order}", style: TextStyle(color: AppColors.sageLight, fontSize: 13))),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: _commonNameControllers[i],
+                  style: TextStyle(color: AppColors.paper, fontSize: 13),
+                  decoration: const InputDecoration(border: InputBorder.none, isDense: true, hintText: 'Nombre común'),
+                ),
+                TextField(
+                  controller: _scientificNameControllers[i],
+                  style: TextStyle(color: AppColors.sageLight, fontSize: 12, fontStyle: FontStyle.italic),
+                  decoration: const InputDecoration(border: InputBorder.none, isDense: true, hintText: 'Nombre científico'),
+                ),
+              ],
             ),
-            IconButton(
-              icon: Icon(Icons.delete_outline, color: AppColors.sage, size: 20),
-              onPressed: () => setState(() {
-                _tracks!.removeAt(i);
-                _trackControllers.removeAt(i).dispose();
-                for (var j = 0; j < _tracks!.length; j++) {
-                  _tracks![j].order = j + 1;
-                }
-              }),
-            ),
-          ],
-        ),
-      );
-    });
+          ),
+          Switch(
+            value: track.active,
+            activeThumbColor: AppColors.green,
+            onChanged: (v) => setState(() => track.active = v),
+          ),
+          IconButton(
+            icon: Icon(Icons.delete_outline, color: AppColors.sage, size: 20),
+            onPressed: () => setState(() {
+              _tracks!.removeAt(i);
+              _commonNameControllers.removeAt(i).dispose();
+              _scientificNameControllers.removeAt(i).dispose();
+              for (var j = 0; j < _tracks!.length; j++) {
+                _tracks![j].order = j + 1;
+              }
+            }),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _addTrackButton() {
     if (_tracks == null || _tracks!.length >= 30) return const SizedBox.shrink();
     return OutlinedButton.icon(
       onPressed: () => setState(() {
-        _tracks!.add(TrackModel(order: _tracks!.length + 1, species: "Nueva especie", active: true));
-        _trackControllers.add(TextEditingController(text: "Nueva especie"));
+        final nuevo = TrackModel(order: _tracks!.length + 1, species: "Nueva especie", active: true);
+        _tracks!.add(nuevo);
+        _commonNameControllers.add(TextEditingController(text: nuevo.commonName));
+        _scientificNameControllers.add(TextEditingController(text: nuevo.scientificName));
       }),
       icon: Icon(Icons.add, color: AppColors.orange),
       label: Text("Agregar pista", style: TextStyle(color: AppColors.paper)),
