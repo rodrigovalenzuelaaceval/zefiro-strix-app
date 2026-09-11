@@ -945,9 +945,8 @@ class _DeviceScreenState extends State<DeviceScreen> {
     return ReorderableListView(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      onReorder: (oldIndex, newIndex) {
+      onReorderItem: (oldIndex, newIndex) {
         setState(() {
-          if (newIndex > oldIndex) newIndex -= 1;
           final track = _tracks!.removeAt(oldIndex);
           _tracks!.insert(newIndex, track);
           final commonCtrl = _commonNameControllers.removeAt(oldIndex);
