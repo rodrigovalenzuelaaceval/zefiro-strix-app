@@ -181,11 +181,14 @@ class _ScannerScreenState extends State<ScannerScreen> with SingleTickerProvider
           ),
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: OutlinedButton.icon(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: TextButton(
                 onPressed: _useSimulator,
-                icon: const Icon(Icons.smart_toy_outlined),
-                label: const Text("Modo simulación (sin hardware)"),
+                style: TextButton.styleFrom(foregroundColor: AppColors.sage),
+                child: const Text(
+                  "Sin hardware a mano",
+                  style: TextStyle(fontSize: 12),
+                ),
               ),
             ),
           ),
