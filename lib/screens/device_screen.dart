@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart' hide ConnectionState;
+import 'package:flutter/cupertino.dart' hide ConnectionState;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -389,7 +390,7 @@ class _DeviceScreenState extends State<DeviceScreen> {
                 _buildScheduleFields(),
                 const SizedBox(height: 20),
                 _sectionHeader("04", "Grabación"),
-                _fieldBox(_recTimeCtrl, "Tiempo de grabación (segundos)", numeric: true),
+                _secondsPickerField(_recTimeCtrl, "Tiempo de grabación", min: 5, max: 120),
                 _fieldBox(_gainFactorCtrl, "Factor de ganancia", numeric: true),
                 const SizedBox(height: 20),
                 _sectionHeader("05", "Especies y orden"),
@@ -835,6 +836,80 @@ class _DeviceScreenState extends State<DeviceScreen> {
         ),
       ),
     );
+  }
+
+  Widget _secondsPickerField(TextEditingController ctrl, String label, {required int min, required int max}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: const Color(0xFF1C1E19),
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => _pickSeconds(ctrl, min: min, max: max),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.border.withValues(alpha: 0.3)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(label, style: TextStyle(color: AppColors.paper, fontSize: 13)),
+                Row(
+                  children: [
+                    Text("${ctrl.text} s", style: AppTextStyles.tabularValue(fontSize: 14, color: AppColors.blue)),
+                    const SizedBox(width: 6),
+                    Icon(Icons.edit, size: 14, color: AppColors.sage),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickSeconds(TextEditingController ctrl, {required int min, required int max}) async {
+    final current = int.tryParse(ctrl.text) ?? min;
+    final initialIndex = (current - min).clamp(0, max - min);
+    int selected = current;
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1C1E19),
+      builder: (context) {
+        return SizedBox(
+          height: 260,
+          child: Column(
+            children: [
+              Expanded(
+                child: CupertinoPicker(
+                  scrollController: FixedExtentScrollController(initialItem: initialIndex),
+                  itemExtent: 36,
+                  onSelectedItemChanged: (index) => selected = min + index,
+                  children: List.generate(
+                    max - min + 1,
+                    (i) => Center(
+                      child: Text("${min + i} s", style: TextStyle(color: AppColors.paper, fontSize: 16)),
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text("Listo", style: TextStyle(color: AppColors.orange, fontWeight: FontWeight.w700)),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    setState(() => ctrl.text = selected.toString());
   }
 
   List<Widget> _buildTrackRows() {
