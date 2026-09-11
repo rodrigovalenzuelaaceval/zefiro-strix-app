@@ -769,7 +769,7 @@ class _DeviceScreenState extends State<DeviceScreen> {
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Text(
-                "Los ciclos se calculan automáticamente: 1 hora tras el atardecer hasta 1 hora antes del amanecer.",
+                "Dos ciclos de 1 hora: uno tras el atardecer, otro antes del amanecer.",
                 style: TextStyle(color: AppColors.sageLight, fontSize: 11),
               ),
             ),
