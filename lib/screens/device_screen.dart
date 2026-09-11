@@ -550,6 +550,8 @@ class _DeviceScreenState extends State<DeviceScreen> {
           Expanded(child: _dashCard("Sesiones", "${_status?.sessions ?? 0}", muted: true)),
         ],
       ),
+      const SizedBox(height: 8),
+      _capacityCard(),
       const SizedBox(height: 6),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -576,6 +578,32 @@ class _DeviceScreenState extends State<DeviceScreen> {
         ),
       ],
     ];
+  }
+
+  Widget _capacityCard() {
+    final sdFreeMB = _status?.sdFreeMB;
+    if (sdFreeMB == null) return const SizedBox.shrink();
+    // Tasa fija por ahora (8kHz, 16-bit, mono). Cuando el sample rate sea
+    // configurable (ver docs/SOLICITUDES_APP.md, punto 3, repo firmware),
+    // esta constante debe reemplazarse por el valor real de cfg.sampleRate.
+    const bytesPerSecond = 16000;
+    final totalSeconds = (sdFreeMB * 1024 * 1024) ~/ bytesPerSecond;
+    final hours = totalSeconds ~/ 3600;
+    final minutes = (totalSeconds % 3600) ~/ 60;
+    final label = hours > 0 ? '$hours h $minutes min' : '$minutes min';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(color: AppColors.paper, borderRadius: BorderRadius.circular(10)),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text("CAPACIDAD DE GRABACIÓN RESTANTE", style: TextStyle(color: AppColors.sage, fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 0.4)),
+          Text(label, style: AppTextStyles.tabularValue(fontSize: 15, color: AppColors.ink)),
+        ],
+      ),
+    );
   }
 
   Widget _dashCard(String label, String value, {bool tabular = false, bool small = false, bool muted = false}) {
