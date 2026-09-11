@@ -511,6 +511,10 @@ class _DeviceScreenState extends State<DeviceScreen> {
             ],
           ),
         ),
+        IconButton(
+          icon: Icon(Icons.info_outline, color: AppColors.sageLight, size: 20),
+          onPressed: () => Navigator.pushNamed(context, '/about'),
+        ),
       ],
     );
   }
