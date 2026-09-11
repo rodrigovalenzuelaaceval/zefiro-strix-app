@@ -460,7 +460,14 @@ class _DeviceScreenState extends State<DeviceScreen> {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
-            child: Image.asset('assets/icon/icon.png', width: 40, height: 40, fit: BoxFit.contain),
+            child: Image.asset(
+              'assets/icon/icon.png',
+              width: 40,
+              height: 40,
+              fit: BoxFit.contain,
+              cacheWidth: (40 * MediaQuery.of(context).devicePixelRatio).round(),
+              cacheHeight: (40 * MediaQuery.of(context).devicePixelRatio).round(),
+            ),
           ),
           const SizedBox(width: 10),
           Column(
