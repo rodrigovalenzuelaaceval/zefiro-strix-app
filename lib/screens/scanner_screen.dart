@@ -13,17 +13,37 @@ class ScannerScreen extends StatefulWidget {
   State<ScannerScreen> createState() => _ScannerScreenState();
 }
 
-class _ScannerScreenState extends State<ScannerScreen> {
+class _ScannerScreenState extends State<ScannerScreen> with SingleTickerProviderStateMixin {
   List<DiscoveredDevice> _scanResults = [];
   bool _isScanning = false;
 
   StreamSubscription<DiscoveredDevice>? _scanSubscription;
   Timer? _scanTimeout;
 
+  late final AnimationController _featherController;
+  late final Animation<double> _featherScale;
+  late final Animation<double> _featherOpacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _featherController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+    _featherScale = Tween<double>(begin: 0.9, end: 1.15).animate(
+      CurvedAnimation(parent: _featherController, curve: Curves.easeInOut),
+    );
+    _featherOpacity = Tween<double>(begin: 0.6, end: 1.0).animate(
+      CurvedAnimation(parent: _featherController, curve: Curves.easeInOut),
+    );
+  }
+
   @override
   void dispose() {
     _scanSubscription?.cancel();
     _scanTimeout?.cancel();
+    _featherController.dispose();
     super.dispose();
   }
 
@@ -110,14 +130,30 @@ class _ScannerScreenState extends State<ScannerScreen> {
       appBar: AppBar(
         title: const Text("Buscar dispositivo Zéfiro Strix"),
         actions: [
-          if (_isScanning)
-            const Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)))
-          else
-            IconButton(onPressed: _startScan, icon: const Icon(Icons.refresh))
+          IconButton(onPressed: _isScanning ? null : _startScan, icon: const Icon(Icons.refresh))
         ],
       ),
       body: Column(
         children: [
+          if (_isScanning)
+            Container(
+              width: double.infinity,
+              height: 88,
+              alignment: Alignment.center,
+              child: AnimatedBuilder(
+                animation: _featherController,
+                builder: (context, child) {
+                  return Opacity(
+                    opacity: _featherOpacity.value,
+                    child: Transform.scale(
+                      scale: _featherScale.value,
+                      child: child,
+                    ),
+                  );
+                },
+                child: Image.asset('assets/icon/pluma.png', width: 64, height: 64),
+              ),
+            ),
           Expanded(
             child: ListView.builder(
               itemCount: _scanResults.length,
