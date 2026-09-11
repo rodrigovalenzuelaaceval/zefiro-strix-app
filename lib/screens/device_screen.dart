@@ -768,6 +768,13 @@ class _DeviceScreenState extends State<DeviceScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                "Los ciclos se calculan automáticamente: 1 hora tras el atardecer hasta 1 hora antes del amanecer.",
+                style: TextStyle(color: AppColors.sageLight, fontSize: 11),
+              ),
+            ),
             _scheduleRow("Ciclo mañana", "${_seaSchedule!.morningStart} – ${_seaSchedule!.morningEnd}"),
             _scheduleRow("Ciclo noche", "${_seaSchedule!.nightStart} – ${_seaSchedule!.nightEnd}"),
           ],
