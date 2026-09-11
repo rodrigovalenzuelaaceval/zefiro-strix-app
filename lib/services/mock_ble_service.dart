@@ -64,7 +64,7 @@ class MockBleService implements BleServiceBase {
         morningEnd: "06:22",
         nightStart: "19:55",
         nightEnd: "20:55",
-        recTime: 20,
+        recTime: 40,
         pauseMs: 500,
         volume: 30,
         gainFactor: 3,
