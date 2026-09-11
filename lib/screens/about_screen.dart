@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 
@@ -28,6 +29,7 @@ class AboutScreen extends StatelessWidget {
                   height: 220,
                   width: double.infinity,
                   fit: BoxFit.cover,
+                  alignment: Alignment.topCenter,
                 ),
                 Positioned(
                   left: 0,
@@ -41,14 +43,6 @@ class AboutScreen extends StatelessWidget {
                         onPressed: () => Navigator.of(context).pop(),
                       ),
                     ),
-                  ),
-                ),
-                Positioned(
-                  right: 12,
-                  bottom: 82,
-                  child: Text(
-                    "Chuncho (Glaucidium nana)",
-                    style: TextStyle(color: AppColors.sageLight, fontSize: 10),
                   ),
                 ),
                 Positioned(
@@ -87,7 +81,7 @@ class AboutScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    "Zéfiro Strix es un sistema de monitoreo bioacústico para detección de aves nocturnas mediante playback y grabación de respuesta, desarrollado por Tetrapoda® SpA para monitoreos de cumplimiento ambiental bajo el Sistema de Evaluación de Impacto Ambiental (SEA) de Chile.",
+                    "Zéfiro Strix es una estación de monitoreo bioacústico para la detección de aves nocturnas mediante playback y grabación de respuesta, desarrollada por Tetrapoda® SpA para estudios de biodiversidad, investigación científica y campañas de monitoreo ambiental en terreno.",
                     style: TextStyle(color: AppColors.paper, fontSize: 13, height: 1.5),
                   ),
                   const SizedBox(height: 20),
@@ -111,10 +105,10 @@ class AboutScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  _contactRow(Icons.language, "tetrapoda.cl", () => _open("https://www.tetrapoda.cl")),
-                  _contactRow(Icons.email_outlined, "contacto@tetrapoda.cl", () => _open("mailto:contacto@tetrapoda.cl")),
-                  _contactRow(Icons.chat_bubble_outline, "+56 9 7788 5573", () => _open("https://wa.me/56977885573")),
-                  _contactRow(Icons.camera_alt_outlined, "@tetrapodaspa", () => _open("https://www.instagram.com/tetrapodaspa")),
+                  _contactRow(FontAwesomeIcons.globe, "tetrapoda.cl", () => _open("https://www.tetrapoda.cl")),
+                  _contactRow(FontAwesomeIcons.envelope, "contacto@tetrapoda.cl", () => _open("mailto:contacto@tetrapoda.cl")),
+                  _contactRow(FontAwesomeIcons.whatsapp, "+56 9 7788 5573", () => _open("https://wa.me/56977885573")),
+                  _contactRow(FontAwesomeIcons.instagram, "@tetrapodaspa", () => _open("https://www.instagram.com/tetrapodaspa")),
                   const SizedBox(height: 20),
                   InkWell(
                     onTap: () => _open("https://www.tetrapoda.cl/manual-zefiro-strix.pdf"),

@@ -290,7 +290,7 @@ class _DeviceScreenState extends State<DeviceScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text("¿Finalizar configuración?"),
+        title: const Text("¿Finalizar configuración? 🦉", textAlign: TextAlign.center),
         content: const Text(
           "El dispositivo comenzará a operar según el ciclo programado. Guarda la configuración antes de continuar si hiciste cambios.",
         ),
@@ -977,6 +977,9 @@ class _DeviceScreenState extends State<DeviceScreen> {
     return ReorderableListView(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
+      proxyDecorator: (child, index, animation) {
+        return Material(color: Colors.transparent, child: child);
+      },
       onReorderItem: (oldIndex, newIndex) {
         setState(() {
           final track = _tracks!.removeAt(oldIndex);

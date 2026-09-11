@@ -146,38 +146,42 @@ class _ScannerScreenState extends State<ScannerScreen> with SingleTickerProvider
       ),
       body: Column(
         children: [
-          if (_isScanning)
-            Container(
-              width: double.infinity,
-              height: 88,
-              alignment: Alignment.center,
-              child: AnimatedBuilder(
-                animation: _featherController,
-                builder: (context, child) {
-                  return Opacity(
-                    opacity: _featherOpacity.value,
-                    child: Transform.scale(
-                      scale: _featherScale.value,
-                      child: child,
-                    ),
-                  );
-                },
-                child: Image.asset('assets/icon/pluma.png', width: 64, height: 64),
-              ),
-            ),
           Expanded(
-            child: ListView.builder(
-              itemCount: _scanResults.length,
-              itemBuilder: (context, index) {
-                final result = _scanResults[index];
-                return ListTile(
-                  title: Text(result.name),
-                  subtitle: Text(result.id),
-                  trailing: const Icon(Icons.bluetooth),
-                  onTap: () => _connectTo(result),
-                );
-              },
-            ),
+            child: _isScanning && _scanResults.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        AnimatedBuilder(
+                          animation: _featherController,
+                          builder: (context, child) {
+                            return Opacity(
+                              opacity: _featherOpacity.value,
+                              child: Transform.scale(
+                                scale: _featherScale.value,
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: Image.asset('assets/icon/pluma.png', width: 120, height: 120),
+                        ),
+                        const SizedBox(height: 16),
+                        Text("Buscando dispositivo...", style: TextStyle(color: AppColors.sageLight, fontSize: 13)),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: _scanResults.length,
+                    itemBuilder: (context, index) {
+                      final result = _scanResults[index];
+                      return ListTile(
+                        title: Text(result.name),
+                        subtitle: Text(result.id),
+                        trailing: const Icon(Icons.bluetooth),
+                        onTap: () => _connectTo(result),
+                      );
+                    },
+                  ),
           ),
           SafeArea(
             child: Padding(
@@ -186,7 +190,7 @@ class _ScannerScreenState extends State<ScannerScreen> with SingleTickerProvider
                 onPressed: _useSimulator,
                 style: TextButton.styleFrom(foregroundColor: AppColors.sage),
                 child: const Text(
-                  "Sin hardware a mano",
+                  "Continuar sin dispositivo",
                   style: TextStyle(fontSize: 12),
                 ),
               ),
