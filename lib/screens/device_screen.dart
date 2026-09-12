@@ -31,7 +31,7 @@ class _DeviceScreenState extends State<DeviceScreen> {
   ConfigModel? _config;
   List<TrackModel>? _tracks;
 
-  bool _isLoading = false;
+  bool _isLoading = true;
   bool _isSaving = false;
   bool _isGpsLoading = false;
   bool _connected = true;
