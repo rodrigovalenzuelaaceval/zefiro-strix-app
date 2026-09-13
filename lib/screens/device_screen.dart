@@ -35,6 +35,7 @@ class _DeviceScreenState extends State<DeviceScreen> {
   bool _isSaving = false;
   bool _isGpsLoading = false;
   bool _connected = true;
+  bool _loadError = false;
 
   StreamSubscription<StatusModel>? _statusSubscription;
   StreamSubscription<ConnectionState>? _connectionSubscription;
@@ -96,7 +97,10 @@ class _DeviceScreenState extends State<DeviceScreen> {
   }
 
   Future<void> _loadAll() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _loadError = false;
+    });
     try {
       final config = await widget.bleService.readConfig();
       final tracks = await widget.bleService.readAllTracks();
@@ -109,6 +113,7 @@ class _DeviceScreenState extends State<DeviceScreen> {
       }
     } catch (e) {
       if (mounted) {
+        setState(() => _loadError = true);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Error al leer configuración: $e")),
         );
@@ -371,6 +376,32 @@ class _DeviceScreenState extends State<DeviceScreen> {
   // UI
   // ==========================================================================
 
+  Widget _buildLoadErrorView() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline, color: AppColors.orange, size: 40),
+            const SizedBox(height: 12),
+            Text(
+              "No se pudo leer la configuración del dispositivo.",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.paper, fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: _loadAll,
+              icon: const Icon(Icons.refresh),
+              label: const Text("Reintentar"),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -378,7 +409,9 @@ class _DeviceScreenState extends State<DeviceScreen> {
       appBar: _buildHeader(),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : ListView(
+          : (_loadError || _config == null)
+              ? _buildLoadErrorView()
+              : ListView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
               children: [
                 ..._buildDashboard(),
