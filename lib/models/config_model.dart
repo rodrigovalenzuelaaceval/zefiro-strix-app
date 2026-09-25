@@ -17,7 +17,6 @@ class ConfigModel {
   String nightEnd;
   int recTime;
   int pauseMs;
-  int volume;
   int gainFactor;
   // V3.3.0: tracks ya NO viaja en Config (puede superar el límite de 512
   // bytes de BLE con hasta 30 pistas). Ver TracksPageModel + BleService
@@ -41,7 +40,6 @@ class ConfigModel {
     required this.nightEnd,
     required this.recTime,
     required this.pauseMs,
-    required this.volume,
     required this.gainFactor,
     required this.trackCount,
     required this.totalSessions,
