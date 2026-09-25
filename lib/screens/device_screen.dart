@@ -689,8 +689,11 @@ class _DeviceScreenState extends State<DeviceScreen> {
   Widget _batteryCard() {
     final pct = _status?.batPct;
     final volt = _status?.batV;
+    final batLow = _status?.batLow ?? false;
     Color barColor = AppColors.green;
-    if (pct != null) {
+    if (batLow) {
+      barColor = Colors.red;
+    } else if (pct != null) {
       if (pct <= 15) {
         barColor = Colors.red;
       } else if (pct <= 30) {
@@ -703,6 +706,17 @@ class _DeviceScreenState extends State<DeviceScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (batLow) ...[
+            Row(
+              children: [
+                Icon(Icons.warning_amber_rounded, color: Colors.red, size: 14),
+                const SizedBox(width: 4),
+                Text("MODO PROTECCIÓN — BATERÍA BAJA",
+                     style: TextStyle(color: Colors.red, fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 0.3)),
+              ],
+            ),
+            const SizedBox(height: 6),
+          ],
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [

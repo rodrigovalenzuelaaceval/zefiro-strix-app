@@ -15,6 +15,7 @@ class StatusModel {
   final int? batPct;
   final double? batV;
   final bool? bmeOk;
+  final bool? batLow;
   final double? tempC;
   final double? humPct;
   final double? presHpa;
@@ -30,6 +31,7 @@ class StatusModel {
     this.batPct,
     this.batV,
     this.bmeOk,
+    this.batLow,
     this.tempC,
     this.humPct,
     this.presHpa,
