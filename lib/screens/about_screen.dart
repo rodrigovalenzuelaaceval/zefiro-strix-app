@@ -110,7 +110,7 @@ class AboutScreen extends StatelessWidget {
                   _contactRow(FontAwesomeIcons.instagram, "@tetrapodaspa", () => _open("https://www.instagram.com/tetrapodaspa")),
                   const SizedBox(height: 20),
                   InkWell(
-                    onTap: () => _open("https://www.tetrapoda.cl/manual-zefiro-strix.pdf"),
+                    onTap: () => _open("https://tetrapoda.cl/manual-zefiro-strix.html"),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                       decoration: BoxDecoration(
