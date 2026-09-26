@@ -71,7 +71,19 @@ class _DeviceScreenState extends State<DeviceScreen> {
       if (mounted) setState(() => _status = status);
     });
     _connectionSubscription = widget.bleService.connectionStateStream.listen((state) {
-      if (mounted) setState(() => _connected = state == ConnectionState.connected);
+      final isConnected = state == ConnectionState.connected;
+      if (mounted) {
+        setState(() {
+          _connected = isConnected;
+          if (!isConnected) {
+            // Al desconectar, limpiar el estado cacheado: evita mostrar
+            // datos viejos (bateria, sensores, etc.) de la sesion anterior
+            // mientras se espera la primera notificacion fresca del nuevo
+            // reconecte.
+            _status = null;
+          }
+        });
+      }
     });
     _loadAll();
   }
