@@ -49,3 +49,7 @@ app.*.map.json
 
 *.keystore
 android/key.properties
+
+# Build process artifacts
+build_log.txt
+build_pid.txt
